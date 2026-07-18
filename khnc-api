@@ -1,0 +1,91 @@
+#!/bin/sh
+printf 'Content-Type: application/json\r\n'
+printf 'Cache-Control: no-store\r\n\r\n'
+json_escape(){ printf '%s' "$1" | sed 's/\\/\\\\/g;s/"/\\"/g;s/\r/\\r/g;s/\t/\\t/g'; }
+BOARD="$(ubus call system board 2>/dev/null)"
+HOSTNAME="$(printf '%s' "$BOARD" | jsonfilter -e '@.hostname' 2>/dev/null)"
+MODEL="$(printf '%s' "$BOARD" | jsonfilter -e '@.model' 2>/dev/null)"
+TMP="/tmp/khnc-discovery.$$"; : > "$TMP"
+WIFI_TMP="/tmp/khnc-wifi.$$"; : > "$WIFI_TMP"
+ETH_TMP="/tmp/khnc-ethernet.$$"; : > "$ETH_TMP"
+# source|mac|ip|name|expires
+# The router's own IPv4 address is not present in its neighbor table, so add it explicitly.
+LAN_MAC="$(ip link show dev br-lan 2>/dev/null | sed -n 's/.*link\/ether \([0-9A-Fa-f:]*\).*/\1/p' | head -n 1 | tr A-F a-f)"
+LAN_IPV4="$(ip -4 addr show dev br-lan 2>/dev/null | awk '/inet 192\.168\./ {sub(/\/.*/,"",$2); print $2; exit}')"
+[ -n "$LAN_MAC" ] && [ -n "$LAN_IPV4" ] && printf 'self|%s|%s|%s|0\n' "$LAN_MAC" "$LAN_IPV4" "${HOSTNAME:-OpenWrt}" >> "$TMP"
+[ -r /tmp/dhcp.leases ] && while read -r EXPIRES MAC IP NAME CLIENTID; do [ -n "$MAC" ] || continue; [ "$NAME" = "*" ] && NAME=""; printf 'dhcp|%s|%s|%s|%s\n' "$(printf '%s' "$MAC"|tr A-F a-f)" "$IP" "$NAME" "${EXPIRES:-0}" >> "$TMP"; done < /tmp/dhcp.leases
+ip neigh show 2>/dev/null | while read -r IP DEVWORD DEV REST; do MAC="$(printf '%s\n' "$REST" | sed -n 's/.*lladdr \([0-9A-Fa-f:]*\).*/\1/p')"; [ -n "$MAC" ] || continue; STATE="$(printf '%s\n' "$REST"|awk '{print $NF}')"; case "$STATE" in FAILED|INCOMPLETE) continue;; esac; printf 'neigh|%s|%s||0\n' "$(printf '%s' "$MAC"|tr A-F a-f)" "$IP" >> "$TMP"; done
+# HostHints is retained for diagnostics and future name enrichment.
+HINTS="$(ubus call luci-rpc getHostHints 2>/dev/null)"
+printf '{"system":{"hostname":"%s","model":"%s"},"leases":[' "$(json_escape "${HOSTNAME:-OpenWrt}")" "$(json_escape "${MODEL:-Unknown}")"
+FIRST=1
+awk -F'|' '
+function priority(ip) {
+  if (ip ~ /^192\.168\.[0-9]+\.[0-9]+$/) return 1
+  if (ip ~ /:/ && ip !~ /^fe80:/) return 2
+  if (ip ~ /^fe80:/) return 3
+  return 4
+}
+{
+  mac=$2; rank=priority($3)
+  if (!(mac in order)) { order[mac]=++count; keys[count]=mac; best[mac]=rank; row[mac]=$0 }
+  else if (rank < best[mac]) { best[mac]=rank; row[mac]=$0 }
+}
+END { for (i=1; i<=count; i++) print row[keys[i]] }
+' "$TMP" | while IFS='|' read -r SOURCE MAC IP NAME EXPIRES; do [ "$FIRST" -eq 1 ] || printf ','; FIRST=0; printf '{"expires":%s,"mac":"%s","ip":"%s","hostname":"%s","source":"%s"}' "${EXPIRES:-0}" "$(json_escape "$MAC")" "$(json_escape "$IP")" "$(json_escape "$NAME")" "$(json_escape "$SOURCE")"; done
+printf '],"wifi":['
+FIRST_RADIO=1
+for OBJ in $(ubus list 2>/dev/null | grep '^hostapd\.'); do
+ STATUS="$(ubus call "$OBJ" get_status 2>/dev/null)"; CLIENTS="$(ubus call "$OBJ" get_clients 2>/dev/null)"; [ -n "$CLIENTS" ] || continue
+ SSID="$(printf '%s' "$STATUS"|jsonfilter -e '@.ssid' 2>/dev/null)"; FREQ="$(printf '%s' "$CLIENTS"|jsonfilter -e '@.freq' 2>/dev/null)"; [ -n "$FREQ" ] || FREQ="$(printf '%s' "$STATUS"|jsonfilter -e '@.freq' 2>/dev/null)"
+ case "$FREQ" in 2*) BAND='2.4 GHz';;5*) BAND='5 GHz';;6*) BAND='6 GHz';;*) BAND='';;esac
+ [ "$FIRST_RADIO" -eq 1 ] || printf ','; FIRST_RADIO=0; printf '{"interface":"%s","ssid":"%s","band":"%s","clients":[' "$(json_escape "${OBJ#hostapd.}")" "$(json_escape "$SSID")" "$(json_escape "$BAND")"
+ FIRST_CLIENT=1
+ for MAC in $(printf '%s\n' "$CLIENTS"|sed -n 's/^[[:space:]]*"\([0-9A-Fa-f:][0-9A-Fa-f:]*\)"[[:space:]]*:[[:space:]]*{.*/\1/p'|awk 'length($0)==17'); do
+  RAW_MAC="$MAC"; MAC="$(printf '%s' "$RAW_MAC"|tr A-F a-f)"; printf '%s\n' "$MAC" >> "$WIFI_TMP"
+  SIGNAL="$(printf '%s' "$CLIENTS"|jsonfilter -e "@.clients['$RAW_MAC'].signal" 2>/dev/null)"; [ -n "$SIGNAL" ] || SIGNAL=-100
+  [ "$FIRST_CLIENT" -eq 1 ] || printf ','; FIRST_CLIENT=0; printf '{"mac":"%s","signal":%s}' "$(json_escape "$MAC")" "$SIGNAL"
+ done
+ printf ']}'
+done
+
+# Dynamic bridge entries are the primary evidence of a currently attached wired device.
+if command -v bridge >/dev/null 2>&1; then
+ bridge fdb show br br-lan 2>/dev/null | while read -r MAC REST; do
+  MAC="$(printf '%s' "$MAC"|tr A-F a-f)"; [ "${#MAC}" -eq 17 ] || continue
+  printf '%s' "$REST" | grep -Eq '(^| )(self|permanent|static)( |$)' && continue
+  grep -Fxq "$MAC" "$WIFI_TMP" && continue
+  DEV="$(printf '%s\n' "$REST" | sed -n 's/.* dev \([^ ]*\).*/\1/p')"
+  printf '%s|%s|bridge|ACTIVE\n' "$MAC" "${DEV:-br-lan}" >> "$ETH_TMP"
+ done
+fi
+
+# A live neighbor is a fallback for platforms where bridge FDB output is incomplete.
+ip neigh show dev br-lan 2>/dev/null | while read -r IP REST; do
+ MAC="$(printf '%s\n' "$REST" | sed -n 's/.*lladdr \([0-9A-Fa-f:]*\).*/\1/p' | tr A-F a-f)"; [ -n "$MAC" ] || continue
+ STATE="$(printf '%s\n' "$REST" | awk '{print $NF}')"
+ case "$STATE" in REACHABLE|STALE|DELAY|PROBE|PERMANENT) ;; *) continue;; esac
+ grep -Fxq "$MAC" "$WIFI_TMP" && continue
+ printf '%s|br-lan|neighbor|%s\n' "$MAC" "$STATE" >> "$ETH_TMP"
+done
+
+# Modems and upstream gateways live on the WAN side, not on br-lan.
+WAN_DEV="$(ip route show default 2>/dev/null | awk 'NR==1 {print $5}')"
+if [ -n "$WAN_DEV" ] && [ "$WAN_DEV" != "br-lan" ]; then
+ ip neigh show dev "$WAN_DEV" 2>/dev/null | while read -r IP REST; do
+  MAC="$(printf '%s\n' "$REST" | sed -n 's/.*lladdr \([0-9A-Fa-f:]*\).*/\1/p' | tr A-F a-f)"; [ -n "$MAC" ] || continue
+  STATE="$(printf '%s\n' "$REST" | awk '{print $NF}')"
+  case "$STATE" in REACHABLE|STALE|DELAY|PROBE|PERMANENT) ;; *) continue;; esac
+  grep -Fxq "$MAC" "$WIFI_TMP" && continue
+  printf '%s|%s|wan-neighbor|%s\n' "$MAC" "$WAN_DEV" "$STATE" >> "$ETH_TMP"
+ done
+fi
+
+printf '],"ethernet":['
+FIRST_ETHERNET=1
+awk -F'|' '!seen[$1]++{print}' "$ETH_TMP" | while IFS='|' read -r MAC INTERFACE SOURCE STATE; do
+ [ "$FIRST_ETHERNET" -eq 1 ] || printf ','; FIRST_ETHERNET=0
+ printf '{"mac":"%s","interface":"%s","source":"%s","state":"%s"}' "$(json_escape "$MAC")" "$(json_escape "$INTERFACE")" "$(json_escape "$SOURCE")" "$(json_escape "$STATE")"
+done
+printf '],"host_hints_available":%s}' "$([ -n "$HINTS" ] && echo true || echo false)"
+rm -f "$TMP" "$WIFI_TMP" "$ETH_TMP"

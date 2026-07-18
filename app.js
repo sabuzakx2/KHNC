@@ -21,11 +21,14 @@ let lastSystemRaw = null;
 let policies = readJSON("khnc-policies", {});
 let trafficPrevious = new Map();
 let trafficHistory = new Map();
+let wiredTrafficLastSeen = new Map();
 let usageBuckets = readJSON("khnc-usage-buckets", []);
 let activeView = "dashboard";
 let parentalStatus = {};
 const TRAFFIC_INTERVAL_MS = 3000;
 const TRAFFIC_WINDOW = 3;
+const WIRED_TRAFFIC_GRACE_MS = 3 * 60 * 1000;
+const NETWORK_REFRESH_INTERVAL_MS = 30 * 1000;
 
 
 const icons = {
@@ -342,13 +345,26 @@ function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"
 function iconKeyForType(type) { return ({"mini-pc":"desktop","smart-home":"home"}[type] || type || "other"); }
 function iconHtml(key, className = "") { const item = icons[key] || icons.other; return `<span class="device-icon ${className}">${item.svg}</span>`; }
 
+function connectedSsid(value) {
+  const ssid = String(value || "").trim();
+  return ssid && ssid !== "현재 Wi-Fi 미연결" ? ssid : "";
+}
+
+function connectionEntries(value) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object") return [];
+  return [value, ...Object.values(value).filter(entry => entry && typeof entry === "object")];
+}
+
 function buildConnectionIndex(raw) {
   const wifi = new Map();
   for (const radio of raw?.wifi || []) {
+    const ssid = connectedSsid(radio.ssid);
     for (const c of radio.clients || []) {
       const mac = String(c.mac || "").trim().toLowerCase();
       if (!mac) continue;
-      wifi.set(mac, { signal: c.signal, ssid: radio.ssid, band: radio.band });
+      const clientSsid = connectedSsid(c.ssid) || ssid;
+      if (clientSsid) wifi.set(mac, { signal: c.signal, ssid: clientSsid, band: radio.band });
     }
   }
 
@@ -358,7 +374,19 @@ function buildConnectionIndex(raw) {
     if (mac) leaseMacs.add(mac);
   }
 
-  const wired = new Set([...leaseMacs].filter(mac => !wifi.has(mac)));
+  const wired = new Set();
+  const ethernetSources = [raw?.ethernet, raw?.ethernetClients, raw?.ethernet_clients, raw?.wired, raw?.lan];
+  ethernetSources.flatMap(connectionEntries).forEach(entry => {
+    const mac = String(entry?.mac || entry?.macaddr || entry?.mac_address || "").trim().toLowerCase();
+    if (mac) wired.add(mac);
+  });
+  for (const lease of raw?.leases || []) {
+    const mac = String(lease.mac || "").trim().toLowerCase();
+    const ethernet = lease.ethernet;
+    const hasEthernet = ethernet != null && ethernet !== false && ethernet !== "" &&
+      (typeof ethernet !== "object" || Object.keys(ethernet).length > 0);
+    if (mac && hasEthernet) wired.add(mac);
+  }
   return { wifi, leaseMacs, wired };
 }
 
@@ -408,11 +436,19 @@ async function refreshTraffic() {
       d.uploadBps = hist.reduce((a, x) => a + x.upload, 0) / hist.length;
       d.downloadBps = hist.reduce((a, x) => a + x.download, 0) / hist.length;
       if (upload > 0 || download > 0) usageBuckets.push({ time: now, mac: d.mac, upload: upload * (TRAFFIC_INTERVAL_MS/1000), download: download * (TRAFFIC_INTERVAL_MS/1000) });
+      if (d.connectionType === "wired") {
+        if (upload > 0 || download > 0) wiredTrafficLastSeen.set(d.mac, now);
+        d.online = !!d.ethernetConnected || now - Number(wiredTrafficLastSeen.get(d.mac) || 0) < WIRED_TRAFFIC_GRACE_MS;
+      }
     }
     const cutoff = now - 26 * 60 * 60 * 1000;
     usageBuckets = usageBuckets.filter(x => x.time >= cutoff);
     saveUsageBuckets();
     renderCards();
+    renderHomeStatus();
+    renderStableDashboard();
+    renderParentMode();
+    renderManagement();
     renderStatistics();
   } catch {}
 }
@@ -420,9 +456,11 @@ async function refreshTraffic() {
 function normalize(raw) {
   const connectionIndex = buildConnectionIndex(raw);
   const wifi = connectionIndex.wifi;
+  const wired = connectionIndex.wired;
   return (raw.leases || []).map((l, i) => {
     const mac = (l.mac || "").toLowerCase();
     const w = wifi.get(mac);
+    const ethernetConnected = wired.has(mac);
     const p = prefs[mac] || {};
     const registered = !!p.registered || !!p.managed;
     const displayName = p.displayName || p.name || l.hostname || l.vendor || "이름 없는 기기";
@@ -439,11 +477,12 @@ function normalize(raw) {
       deviceType,
       icon: p.icon || iconKeyForType(deviceType),
       memo: p.memo || "",
-      ip: l.ip || "-", online: true,
+      ip: l.ip || "-", online: !!w || ethernetConnected,
+      ethernetConnected,
       lastSeen: Number(l.expires || 0),
       connectionPreference: p.connectionPreference || "wifi",
-      connectionType: w ? "wifi" : ((p.connectionPreference || "wifi") === "lan" ? "wired" : "wifi"),
-      network: w ? `Wi-Fi ${w.band || ""}`.trim() : ((p.connectionPreference || "wifi") === "lan" ? "LAN" : "Wi-Fi"),
+      connectionType: w ? "wifi" : (ethernetConnected ? "wired" : ((p.connectionPreference || "wifi") === "lan" ? "wired" : "wifi")),
+      network: w ? `Wi-Fi ${w.band || ""}`.trim() : (ethernetConnected || (p.connectionPreference || "wifi") === "lan" ? "LAN" : "Wi-Fi"),
       ssid: w?.ssid || "",
       signal: w?.signal ?? null,
       uploadBps: Number(l.upload_bps ?? l.tx_bps ?? w?.upload_bps ?? w?.tx_bps ?? 0),
@@ -477,9 +516,30 @@ function formatUptime(seconds) {
   const h = Math.floor((n % 86400) / 3600);
   return d ? `${d}일 ${h}시간` : `${h}시간`;
 }
+function formatTimestamp(seconds) {
+  const value = Number(seconds || 0);
+  return value ? new Date(value * 1000).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "-";
+}
 function pct(used, total) {
   used = Number(used || 0); total = Number(total || 0);
   return total > 0 ? Math.round((used / total) * 100) : null;
+}
+function addressPriority(address) {
+  const value = String(address || "").split("/")[0].trim();
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(value)) return 1;
+  if (value.includes(":") && !/^fe80:/i.test(value)) return 2;
+  if (/^fe80:/i.test(value)) return 3;
+  return 4;
+}
+function preferredRouterAddress(system) {
+  const candidates = [
+    system?.lan_ipv4,
+    system?.lan_ipv6_global,
+    system?.lan_ipv6_link_local,
+    system?.lan_address,
+    ...(Array.isArray(system?.addresses) ? system.addresses.map(item => item?.address || item) : [])
+  ].map(value => String(value || "").split("/")[0].trim()).filter(Boolean);
+  return candidates.sort((a, b) => addressPriority(a) - addressPriority(b))[0] || "-";
 }
 function getRouterMetrics(raw) {
   const fallback = lastSystemRaw || {};
@@ -492,6 +552,7 @@ function getRouterMetrics(raw) {
   const load = rawLoad == null ? null : (Number(rawLoad) > 100 ? Number(rawLoad) / 65535 : Number(rawLoad));
   return {
     hostname: sys.hostname || "OpenWrt",
+    ip: preferredRouterAddress(sys),
     model: sys.model || "-",
     version: sys.version || sys.release?.version || "-",
     kernel: sys.kernel || "-",
@@ -510,6 +571,10 @@ function getRouterMetrics(raw) {
 }
 function providerState(id) {
   if (id === "openwrt") return { enabled: true, connected: !!lastRaw, label: lastRaw ? "연결됨" : "연결 확인 중" };
+  if (id === "synology") {
+    const nas = (infraConfig?.equipment || []).find(item => item.id === "nas");
+    return { enabled: true, connected: !!nas?.online, label: nas?.online ? "연결됨" : "연결 안 됨" };
+  }
   const cfg = providerConfig[id] || {};
   return { enabled: !!cfg.enabled, connected: !!cfg.connected, label: cfg.connected ? "연결됨" : (cfg.enabled ? "설정 필요" : "연결 예정") };
 }
@@ -521,8 +586,8 @@ function renderHomeStatus() {
   const cards = [
     { title: "인터넷", value: lastRaw ? "정상" : "확인 불가", sub: lastRaw ? "OpenWrt API 응답 정상" : "라우터 연결 필요", icon: "globe", ok: !!lastRaw },
     { title: "공유기", value: lastRaw ? m.hostname : "오프라인", sub: `업타임 ${formatUptime(m.uptime)}`, icon: "router", ok: !!lastRaw },
-    { title: "LAN", value: `${counts.lan}대 연결`, sub: "등록 기기 중 현재 온라인 유선 기기", icon: "ethernet", ok: !!lastRaw },
-    { title: "무선 LAN", value: `${counts.wifi}대 연결`, sub: "등록 기기 중 현재 온라인 Wi-Fi 기기", icon: "wifi", ok: !!lastRaw },
+    { title: "LAN", value: `${counts.lan}대 연결`, sub: "현재 온라인 유선 기기", icon: "ethernet", ok: !!lastRaw },
+    { title: "무선 LAN", value: `${counts.wifi}대 연결`, sub: "현재 온라인 Wi-Fi 기기", icon: "wifi", ok: !!lastRaw },
     { title: "외부 시스템", value: `${configured}/${providerDefinitions.length} 연결`, sub: "연결 설정에서 확장 가능", icon: "blocks", ok: configured > 0 }
   ];
   const svg = {
@@ -540,11 +605,12 @@ function renderRouterOverview() {
     ? `${s.used_human || "-"} / ${s.total_human || "-"} · ${String(s.used_percent ?? "-")}%`
     : (s.reason || "저장장치 정보 없음");
   const smartHealth = s.smart_available ? (s.health || "확인됨") : (s.mounted ? "SMART 미지원" : "연결 안 됨");
-  const smartCard = `<div class="storage-metric smart-metric"><span>저장장치 SMART</span><strong>${escapeHtml(smartHealth)}</strong>${s.smart_available ? `<small>${escapeHtml(s.model || "SSD")}</small><div class="smart-line"><b>온도 ${escapeHtml(String(s.temperature ?? "-"))}℃</b><b>사용 ${escapeHtml(String(s.power_on_hours ?? "-"))}시간</b><b>전원 ${escapeHtml(String(s.power_cycle_count ?? "-"))}회</b></div>` : `<small>${escapeHtml(s.reason || "SMART 정보를 확인할 수 없습니다.")}</small>`}</div>`;
+  const selfTest = s.self_test_status ? `${s.self_test_type || "Self-test"}: ${s.self_test_status}` : "검사 기록 없음";
+  const smartCard = `<div class="storage-metric smart-metric"><span>저장장치 SMART</span><strong>${escapeHtml(smartHealth)}</strong>${s.smart_available ? `<small>${escapeHtml(s.model || "SSD")} · 최근 조회 ${escapeHtml(formatTimestamp(s.checked_at))}</small><div class="smart-line"><b>온도 ${escapeHtml(String(s.temperature ?? "-"))}℃</b><b>사용 ${escapeHtml(String(s.power_on_hours ?? "-"))}시간</b><b>전원 ${escapeHtml(String(s.power_cycle_count ?? "-"))}회</b><b>${escapeHtml(selfTest)}</b></div>` : `<small>${escapeHtml(s.reason || "SMART 정보를 확인할 수 없습니다.")}</small>`}</div>`;
   const bytes = n => { const v=Number(n||0); return v ? `${(v/1024/1024).toFixed(0)} MB` : "-"; };
   const usageCard = (label, percent, detail) => `<div class="usage-metric"><span>${label}</span><strong>${percent == null ? "-" : `${percent}%`}</strong><small>${escapeHtml(detail)}</small><div class="usage-track"><i style="width:${Math.max(0,Math.min(100,Number(percent||0)))}%"></i></div></div>`;
   const cells = [
-    `<div><span>Router</span><strong>${escapeHtml(m.hostname)}</strong></div>`,
+    `<div><span>Router</span><strong>${escapeHtml(m.hostname)}</strong><small>${escapeHtml(m.ip)}</small></div>`,
     `<div><span>Model</span><strong>${escapeHtml(m.model)}</strong></div>`,
     usageCard("CPU", m.cpu || 0, m.cpu ? `${m.cpu}% used` : `Load ${m.load == null ? "-" : Number(m.load).toFixed(2)}`),
     usageCard("Memory", m.memory, `${bytes(m.memoryUsed)} / ${bytes(m.memoryTotal)}`),
@@ -554,7 +620,7 @@ function renderRouterOverview() {
     `<div><span>OpenWrt Version</span><strong>${escapeHtml(m.version)}</strong></div>`,
     `<div><span>Total Devices</span><strong>${escapeHtml(String(devices.length))}</strong></div>`
   ];
-  $("#routerOverview").innerHTML = `<div class="panel-head"><div><p class="eyebrow">OPENWRT PROVIDER</p><h2>공유기 및 네트워크</h2></div><span class="provider-chip connected">실시간 연결</span></div><div class="metric-grid router-metric-grid">${cells.join("")}</div>`;
+  $("#routerOverview").innerHTML = `<div class="panel-head"><div><p class="eyebrow">OPENWRT PROVIDER</p><h2>공유기 및 네트워크</h2></div><span class="provider-chip ${lastRaw ? "connected" : "planned"}">${lastRaw ? "실시간 연결" : "연결 안 됨"}</span></div><div class="metric-grid router-metric-grid">${cells.join("")}</div>`;
 }
 function renderProviderPanel() {
   $("#providerPanel").innerHTML = `<div class="panel-head"><div><p class="eyebrow">PROVIDERS</p><h2>홈 인프라 연결</h2><small>연결 구조만 준비되어 있으며 실제 연결은 나중에 설정할 수 있습니다.</small></div><button id="openProviderSettings">연결 설정</button></div><div class="providers-grid">${providerDefinitions.map(p => { const st=providerState(p.id); return `<article class="provider-card ${st.connected ? "connected" : "planned"}">${iconHtml(p.icon)}<div><strong>${p.name}</strong><small>${p.description}</small></div><span>${st.label}</span></article>`; }).join("")}</div>`;
@@ -607,10 +673,11 @@ function renderTabs() {
 function list() {
   const q = $("#search").value.trim().toLowerCase();
   const matchesConnection = d => {
-    if (deviceConnectionFilter === "lan") return d.registered && d.online && d.connectionType === "wired";
-    if (deviceConnectionFilter === "wifi") return d.registered && d.online && d.connectionType === "wifi" && !isGuestDevice(d);
+    if (deviceConnectionFilter === "online") return d.online;
+    if (deviceConnectionFilter === "lan") return d.online && d.connectionType === "wired";
+    if (deviceConnectionFilter === "wifi") return d.online && d.connectionType === "wifi";
     if (deviceConnectionFilter === "guest") return isGuestDevice(d);
-    if (deviceConnectionFilter === "offline") return d.registered && !d.online;
+    if (deviceConnectionFilter === "offline") return !d.online;
     if (deviceConnectionFilter === "registered") return d.registered;
     return true;
   };
@@ -652,7 +719,7 @@ function renderCards() {
           </div>
         </div>
         <div class="device-row-traffic">
-          <span class="badge online"><i></i>ONLINE</span>
+          <span class="badge ${d.online ? "online" : "offline"}"><i></i>${d.online ? "ONLINE" : "OFFLINE"}</span>
           <span class="traffic up">↑ <b>${formatRate(d.uploadBps)}</b></span>
           <span class="traffic down">↓ <b>${formatRate(d.downloadBps)}</b></span>
         </div>
@@ -927,7 +994,7 @@ function openManageDialog(d, anchor = "internet") {
   $("#manageDialogTitle").textContent = `${d.name} 관리`;
   $("#manageDeviceMeta").textContent = "";
   $("#manageOnlineBadge").textContent = d.online ? "온라인" : "오프라인";
-  $("#manageOnlineBadge").className = `badge ${d.online ? "online" : "pending"}`;
+  $("#manageOnlineBadge").className = `badge ${d.online ? "online" : "offline"}`;
   $("#scheduleEnabled").checked = !!policy.scheduleEnabled;
   setOverride(policy.override || "schedule");
   renderScheduleRows(policy);
@@ -1051,7 +1118,7 @@ function renderManagement() {
     <article class="management-card" data-device-mac="${escapeHtml(d.mac)}">
       ${orderControls(d.mac)}
       <div class="management-device">${iconHtml(d.icon)}<div><strong>${escapeHtml(d.name)}</strong><small>${escapeHtml(d.owner)} · ${escapeHtml(d.location)}</small></div></div>
-      <span class="badge ${d.online ? "online" : "pending"}">${d.online ? "ONLINE" : "OFFLINE"}</span>
+      <span class="badge ${d.online ? "online" : "offline"}">${d.online ? "ONLINE" : "OFFLINE"}</span>
       <button class="manage-open" data-mac="${escapeHtml(d.mac)}">관리</button>
     </article>`).join("") : `<div class="empty-page">등록된 기기가 없습니다. 기기 페이지에서 먼저 기기를 등록하십시오.</div>`;
   target.querySelectorAll("[data-mac]").forEach(b => b.onclick = () => {
@@ -1212,7 +1279,8 @@ async function load() {
       fetch(API, { cache: "no-store" }),
       fetch(SYSTEM_API, { cache: "no-store" })
     ]);
-    if (deviceResult.status !== "fulfilled" || !deviceResult.value.ok) throw new Error(`기기 API ${deviceResult.status === "fulfilled" ? deviceResult.value.status : "실패"}`);
+    if (deviceResult.status !== "fulfilled") throw new Error(`기기 API 실패 (${deviceResult.reason?.message || "네트워크 오류"})`);
+    if (!deviceResult.value.ok) throw new Error(`기기 API HTTP ${deviceResult.value.status}`);
     const raw = await deviceResult.value.json();
     lastRaw = raw;
     if (systemResult.status === "fulfilled" && systemResult.value.ok) {
@@ -1230,7 +1298,7 @@ async function load() {
     n.textContent = `KHNC API를 읽지 못했습니다: ${e.message}`;
     n.classList.remove("hidden");
     lastRaw = null;
-    devices = [];
+    devices = normalize({ leases: [], wifi: [], ethernet: [] });
     render();
   }
 }
@@ -1303,9 +1371,10 @@ document.addEventListener("visibilitychange", () => {
 });
 setInterval(() => syncFromServer(), 5000);
 setInterval(refreshTraffic, TRAFFIC_INTERVAL_MS);
+setInterval(load, NETWORK_REFRESH_INTERVAL_MS);
 
 /* KHNC version information */
-let KHNC_VERSION = "0.10.1 Stable";
+let KHNC_VERSION = "0.10.2 Stable";
 let KHNC_BUILD = "20260718.11";
 
 async function loadVersionInfo() {
@@ -1313,7 +1382,7 @@ async function loadVersionInfo() {
     const r = await fetch(`./version.json?_=${Date.now()}`, { cache: "no-store" });
     if (!r.ok) return;
     const v = await r.json();
-    KHNC_VERSION = `${v.version || "0.10.1"}${v.channel ? ` ${v.channel}` : ""}`;
+    KHNC_VERSION = `${v.version || "0.10.2"}${v.channel ? ` ${v.channel}` : ""}`;
     KHNC_BUILD = v.build || "20260718.11";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
@@ -1347,10 +1416,11 @@ function dashboardCounts(){
   const reg=registeredDevices();
   return {
     registered:reg.length,
-    lan:reg.filter(d=>d.online && d.connectionType==="wired").length,
-    wifi:reg.filter(d=>d.online && d.connectionType==="wifi" && !isGuestDevice(d)).length,
+    online:devices.filter(d=>d.online).length,
+    offline:devices.filter(d=>!d.online).length,
+    lan:devices.filter(d=>d.online && d.connectionType==="wired").length,
+    wifi:devices.filter(d=>d.online && d.connectionType==="wifi").length,
     guest:devices.filter(isGuestDevice).length,
-    offline:reg.filter(d=>!d.online).length
   };
 }
 function renderStableDashboard(){
@@ -1359,10 +1429,11 @@ function renderStableDashboard(){
   if(target){
     const cards=[
       ["등록기기",c.registered,"registered","전체"],
+      ["Online",c.online,"online","전체"],
+      ["Offline",c.offline,"offline","전체"],
       ["LAN",c.lan,"lan","전체"],
       ["Wi-Fi",c.wifi,"wifi","전체"],
-      ["Guest",c.guest,"guest","등록안됨"],
-      ["Offline",c.offline,"offline","전체"]
+      ["Guest",c.guest,"guest","등록안됨"]
     ];
     target.innerHTML=`<div class="summary-grid">${cards.map(x=>`<article class="summary-card clickable-card" data-device-filter="${x[2]}" data-target-tab="${x[3]}"><span>${x[0]}</span><strong>${x[1]}</strong><small>목록 보기</small></article>`).join("")}</div>`;
     target.querySelectorAll("[data-device-filter]").forEach(el=>el.onclick=()=>{selected=el.dataset.targetTab||"전체";deviceConnectionFilter=el.dataset.deviceFilter||"all";setView("devices");renderTabs();renderCards();});
@@ -1380,7 +1451,7 @@ function renderHomeInfrastructure(){
   const eq=infraConfig.equipment||[], sv=infraConfig.services||[];
   const online=eq.filter(x=>x.online).length+sv.filter(x=>x.online).length, total=eq.length+sv.length;
   $("#infraSummary").innerHTML=`<div><p class="eyebrow">HOME INFRA</p><h2>${online} / ${total} Online</h2><p>외부 장비는 IP·포트 또는 API 연동 후 실제 상태가 표시됩니다.</p></div><span class="provider-chip ${online?"connected":"planned"}">${online?"상태 수집 중":"연동 필요"}</span>`;
-  const card=(x,isService)=>`<article class="infra-card"><div class="infra-card-head"><div><small>${isService?escapeHtml(x.host||"서비스"):"장비"}</small><h3>${escapeHtml(x.name)}</h3></div><span class="infra-status ${x.online?"online":"offline"}">${x.online?"ONLINE":"OFFLINE"}</span></div><div class="infra-meta"><div><span>IP</span><strong>${escapeHtml(x.ip||"미설정")}</strong></div><div><span>Port</span><strong>${escapeHtml(String(x.port||"-"))}</strong></div><div><span>응답시간</span><strong>${escapeHtml(String(x.responseMs??"-"))}${x.responseMs!=null?" ms":""}</strong></div></div>${!isService&&x.id==="nas"?`<div class="infra-meta"><div><span>CPU</span><strong>${x.cpu??"연동 필요"}</strong></div><div><span>Memory</span><strong>${x.memory??"연동 필요"}</strong></div><div><span>Disk</span><strong>${x.disk??"연동 필요"}</strong></div><div><span>SMART</span><strong>${x.smart??"연동 필요"}</strong></div><div><span>Docker</span><strong>${x.dockerCount??"연동 필요"}</strong></div><div><span>마지막 SMART</span><strong>${x.lastSmart??"-"}</strong></div></div>`:""}</article>`;
+  const card=(x,isService)=>`<article class="infra-card"><div class="infra-card-head"><div><small>${isService?escapeHtml(x.host||"서비스"):"장비"}</small><h3>${escapeHtml(x.name)}</h3></div><span class="infra-status ${x.online?"online":"offline"}">${x.online?"ONLINE":"OFFLINE"}</span></div><div class="infra-meta"><div><span>IP</span><strong>${escapeHtml(x.ip||"미설정")}</strong></div><div><span>Port</span><strong>${escapeHtml(String(x.port||"-"))}</strong></div><div><span>응답시간</span><strong>${escapeHtml(String(x.responseMs??"-"))}${x.responseMs!=null?" ms":""}</strong></div></div>${!isService&&x.id==="nas"?`<div class="infra-meta"><div><span>CPU</span><strong>${escapeHtml(x.cpu??"연동 필요")}</strong></div><div><span>Memory</span><strong>${escapeHtml(x.memory??"연동 필요")}</strong></div><div><span>Disk</span><strong>${escapeHtml(x.disk??"연동 필요")}</strong></div><div><span>SMART</span><strong>${escapeHtml(x.smart??"연동 필요")}</strong></div><div><span>Docker</span><strong>${escapeHtml(x.dockerCount??"연동 필요")}</strong></div><div><span>마지막 SMART</span><strong>${escapeHtml(x.lastSmart??"-")}</strong></div></div>`:""}</article>`;
   $("#equipmentGrid").innerHTML=`<div class="panel-head"><div><p class="eyebrow">EQUIPMENT</p><h2>장비</h2></div></div>${eq.map(x=>card(x,false)).join("")}`;
   $("#serviceGrid").innerHTML=`<div class="panel-head"><div><p class="eyebrow">SERVICES</p><h2>서비스</h2></div></div>${sv.map(x=>card(x,true)).join("")}`;
 }
@@ -1443,7 +1514,7 @@ normalize = function(raw){
   Object.entries(prefs).forEach(([mac,p])=>{
     if(seen.has(mac) || !(p.registered||p.managed)) return;
     const deviceType=p.deviceType||inferType(p.displayName||p.name||"");
-    found.push({id:mac,mac,rawName:"",name:p.displayName||p.name||"등록 기기",owner:p.owner||"미지정",location:p.location||"미지정",manufacturer:p.manufacturer||"",model:p.model||"",platform:p.platform||"unknown",deviceType,icon:p.icon||iconKeyForType(deviceType),memo:p.memo||"",ip:"-",online:false,lastSeen:0,connectionPreference:p.connectionPreference||"wifi",connectionType:(p.connectionPreference==="lan"?"wired":"wifi"),network:(p.connectionPreference==="lan"?"LAN":"Wi-Fi"),ssid:"",signal:null,uploadBps:0,downloadBps:0,group:p.group||"미지정",favorite:!!p.favorite,parentMode:!!p.parentMode,registered:true});
+    found.push({id:mac,mac,rawName:"",name:p.displayName||p.name||"등록 기기",owner:p.owner||"미지정",location:p.location||"미지정",manufacturer:p.manufacturer||"",model:p.model||"",platform:p.platform||"unknown",deviceType,icon:p.icon||iconKeyForType(deviceType),memo:p.memo||"",ip:"-",online:false,ethernetConnected:false,lastSeen:0,connectionPreference:p.connectionPreference||"wifi",connectionType:(p.connectionPreference==="lan"?"wired":"wifi"),network:(p.connectionPreference==="lan"?"LAN":"Wi-Fi"),ssid:"",signal:null,uploadBps:0,downloadBps:0,group:p.group||"미지정",favorite:!!p.favorite,parentMode:!!p.parentMode,registered:true});
   });
   const order=readJSON("khnc-display-order",[]);const rank=new Map(order.map((m,i)=>[m,i]));
   found.sort((a,b)=>(rank.get(a.mac)??99999)-(rank.get(b.mac)??99999));
@@ -1453,7 +1524,7 @@ normalize = function(raw){
 const normalizeWithOffline = normalize;
 normalize = function(raw){
   const found=normalizeWithOffline(raw); const seen=new Set(found.map(d=>d.mac));
-  (raw.wifi||[]).forEach(r=>(r.clients||[]).forEach(c=>{const mac=String(c.mac||"").toLowerCase();if(!mac||seen.has(mac))return;const p=prefs[mac]||{},registered=!!p.registered||!!p.managed,deviceType=p.deviceType||"other";found.push({id:mac,mac,rawName:"",name:p.displayName||p.name||"Wi-Fi 기기",owner:p.owner||"미지정",location:p.location||"미지정",manufacturer:p.manufacturer||"",model:p.model||"",platform:p.platform||"unknown",deviceType,icon:p.icon||iconKeyForType(deviceType),memo:p.memo||"",ip:"-",online:true,lastSeen:Date.now(),connectionPreference:"wifi",connectionType:"wifi",network:`Wi-Fi ${r.band||""}`.trim(),ssid:r.ssid||"",signal:c.signal??null,uploadBps:0,downloadBps:0,group:p.group||"미지정",favorite:!!p.favorite,parentMode:!!p.parentMode,registered});seen.add(mac);}));
+  (raw.wifi||[]).forEach(r=>(r.clients||[]).forEach(c=>{const mac=String(c.mac||"").toLowerCase();if(!mac||seen.has(mac))return;const p=prefs[mac]||{},registered=!!p.registered||!!p.managed,deviceType=p.deviceType||"other",ssid=connectedSsid(c.ssid)||connectedSsid(r.ssid),online=!!ssid;found.push({id:mac,mac,rawName:"",name:p.displayName||p.name||"Wi-Fi 기기",owner:p.owner||"미지정",location:p.location||"미지정",manufacturer:p.manufacturer||"",model:p.model||"",platform:p.platform||"unknown",deviceType,icon:p.icon||iconKeyForType(deviceType),memo:p.memo||"",ip:"-",online,ethernetConnected:false,lastSeen:online?Date.now():0,connectionPreference:"wifi",connectionType:"wifi",network:`Wi-Fi ${r.band||""}`.trim(),ssid,signal:online?(c.signal??null):null,uploadBps:0,downloadBps:0,group:p.group||"미지정",favorite:!!p.favorite,parentMode:!!p.parentMode,registered});seen.add(mac);}));
   const order=readJSON("khnc-display-order",[]),rank=new Map(order.map((m,i)=>[m,i]));found.sort((a,b)=>(rank.get(a.mac)??99999)-(rank.get(b.mac)??99999));return found;
 };
 
@@ -1470,6 +1541,8 @@ async function refreshInfrastructureStatus(){
     scheduleStateSave();
     renderHomeInfrastructure();
     renderStableDashboard();
+    renderHomeStatus();
+    renderProviderPanel();
   }catch(e){ console.warn('KHNC infra status:',e.message); }
 }
 refreshInfrastructureStatus();
