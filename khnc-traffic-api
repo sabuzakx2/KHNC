@@ -1,0 +1,8 @@
+#!/bin/sh
+printf 'Content-Type: application/json\r\n'
+printf 'Cache-Control: no-store\r\n\r\n'
+if command -v nlbw >/dev/null 2>&1; then
+  nlbw -c json 2>/dev/null || printf '{"available":false,"columns":[],"data":[]}'
+else
+  printf '{"available":false,"columns":[],"data":[]}'
+fi
