@@ -49,6 +49,18 @@ for OBJ in $(ubus list 2>/dev/null | grep '^hostapd\.'); do
  printf ']}'
 done
 
+# Quiet wired devices such as printers and network tuners may not generate
+# traffic for long periods. Probe all known LAN IPv4 addresses in parallel so
+# the kernel refreshes its ARP/neighbor state before wired detection. ICMP
+# success is not required: an ARP reply is enough to refresh the entry.
+awk -F'|' '$3 ~ /^192\.168\.[0-9]+\.[0-9]+$/ && !seen[$3]++ { print $3 }' "$TMP" |
+{
+ while IFS= read -r IP; do
+  ping -c 1 -W 1 "$IP" >/dev/null 2>&1 &
+ done
+ wait || true
+}
+
 # Dynamic bridge entries are the primary evidence of a currently attached wired device.
 if command -v bridge >/dev/null 2>&1; then
  bridge fdb show br br-lan 2>/dev/null | while read -r MAC REST; do
@@ -57,6 +69,15 @@ if command -v bridge >/dev/null 2>&1; then
   grep -Fxq "$MAC" "$WIFI_TMP" && continue
   DEV="$(printf '%s\n' "$REST" | sed -n 's/.* dev \([^ ]*\).*/\1/p')"
   printf '%s|%s|bridge|ACTIVE\n' "$MAC" "${DEV:-br-lan}" >> "$ETH_TMP"
+ done
+fi
+
+# Older OpenWrt builds may provide brctl but not the iproute2 bridge command.
+if ! command -v bridge >/dev/null 2>&1 && command -v brctl >/dev/null 2>&1; then
+ brctl showmacs br-lan 2>/dev/null | awk 'NR > 1 && length($2) == 17 && $2 ~ /^[0-9A-Fa-f:]+$/ && $3 == "no" { print tolower($2) }' |
+ while IFS= read -r MAC; do
+  grep -Fxq "$MAC" "$WIFI_TMP" && continue
+  printf '%s|br-lan|brctl|ACTIVE\n' "$MAC" >> "$ETH_TMP"
  done
 fi
 
