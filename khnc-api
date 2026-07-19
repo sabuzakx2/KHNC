@@ -13,6 +13,28 @@ ETH_TMP="/tmp/khnc-ethernet.$$"; : > "$ETH_TMP"
 LAN_MAC="$(ip link show dev br-lan 2>/dev/null | sed -n 's/.*link\/ether \([0-9A-Fa-f:]*\).*/\1/p' | head -n 1 | tr A-F a-f)"
 LAN_IPV4="$(ip -4 addr show dev br-lan 2>/dev/null | awk '/inet 192\.168\./ {sub(/\/.*/,"",$2); print $2; exit}')"
 [ -n "$LAN_MAC" ] && [ -n "$LAN_IPV4" ] && printf 'self|%s|%s|%s|0\n' "$LAN_MAC" "$LAN_IPV4" "${HOSTNAME:-OpenWrt}" >> "$TMP"
+
+# Use OpenWrt static DHCP host registrations as the stable device inventory.
+# These entries remain available even when a quiet or powered-off device has no
+# current lease. Their presence does not imply ONLINE; the active probe and
+# bridge/neighbor evidence below still decide the actual connection state.
+if command -v uci >/dev/null 2>&1; then
+ INDEX=0
+ while uci -q get "dhcp.@host[$INDEX]" >/dev/null 2>&1; do
+  STATIC_MACS="$(uci -q get "dhcp.@host[$INDEX].mac" 2>/dev/null || true)"
+  STATIC_IP="$(uci -q get "dhcp.@host[$INDEX].ip" 2>/dev/null || true)"
+  STATIC_NAME="$(uci -q get "dhcp.@host[$INDEX].name" 2>/dev/null || true)"
+  case "$STATIC_IP" in 192.168.*)
+   for STATIC_MAC in $STATIC_MACS; do
+    STATIC_MAC="$(printf '%s' "$STATIC_MAC" | tr A-F a-f)"
+    [ "${#STATIC_MAC}" -eq 17 ] || continue
+    printf 'static|%s|%s|%s|0\n' "$STATIC_MAC" "$STATIC_IP" "$STATIC_NAME" >> "$TMP"
+   done
+  ;; esac
+  INDEX=$((INDEX + 1))
+ done
+fi
+
 [ -r /tmp/dhcp.leases ] && while read -r EXPIRES MAC IP NAME CLIENTID; do [ -n "$MAC" ] || continue; [ "$NAME" = "*" ] && NAME=""; printf 'dhcp|%s|%s|%s|%s\n' "$(printf '%s' "$MAC"|tr A-F a-f)" "$IP" "$NAME" "${EXPIRES:-0}" >> "$TMP"; done < /tmp/dhcp.leases
 ip neigh show 2>/dev/null | while read -r IP DEVWORD DEV REST; do MAC="$(printf '%s\n' "$REST" | sed -n 's/.*lladdr \([0-9A-Fa-f:]*\).*/\1/p')"; [ -n "$MAC" ] || continue; STATE="$(printf '%s\n' "$REST"|awk '{print $NF}')"; case "$STATE" in FAILED|INCOMPLETE) continue;; esac; printf 'neigh|%s|%s||0\n' "$(printf '%s' "$MAC"|tr A-F a-f)" "$IP" >> "$TMP"; done
 # HostHints is retained for diagnostics and future name enrichment.
