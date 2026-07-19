@@ -457,7 +457,7 @@ function normalize(raw) {
   const connectionIndex = buildConnectionIndex(raw);
   const wifi = connectionIndex.wifi;
   const wired = connectionIndex.wired;
-  return (raw.leases || []).map((l, i) => {
+  return (raw.leases || []).filter(l => !prefs[String(l.mac || "").toLowerCase()]?.deleted).map((l, i) => {
     const mac = (l.mac || "").toLowerCase();
     const w = wifi.get(mac);
     const ethernetConnected = wired.has(mac);
@@ -1163,7 +1163,7 @@ function renderStatistics() {
     </section>`;
 }
 
-function render() { renderHomeStatus(); renderRouterOverview(); renderProviderPanel(); renderSummary(); renderTabs(); renderCards(); renderParentMode(); renderManagement(); renderStatistics(); setView(activeView); }
+function render() { renderHomeStatus(); renderRouterOverview(); renderProviderPanel(); renderSummary(); renderTabs(); renderCards(); renderParentMode(); renderManagement(); renderStatistics(); renderDeletedDeviceControl(); setView(activeView); }
 
 function refreshLists() {
   $("#ownerList").innerHTML = owners.map(x => `<option value="${escapeHtml(x)}">`).join("");
@@ -1212,7 +1212,7 @@ function saveDevice(e) {
   if (owner !== "미지정" && !owners.includes(owner)) { owners.push(owner); localStorage.setItem("khnc-owners", JSON.stringify(owners)); scheduleStateSave(); }
   if (location !== "미지정" && !locations.includes(location)) { locations.push(location); localStorage.setItem("khnc-locations", JSON.stringify(locations)); scheduleStateSave(); }
   prefs[mac] = {
-    ...(prefs[mac] || {}), registered: true, managed: true,
+    ...(prefs[mac] || {}), registered: true, managed: true, deleted: false,
     displayName: $("#displayName").value.trim(),
     name: $("#displayName").value.trim(),
     deviceType: $("#deviceType").value,
@@ -1255,6 +1255,40 @@ function unregisterCurrent() {
   persistPolicies().catch(() => {});
   savePrefs();
   $("#deviceDialog").close();
+  load();
+}
+
+function deleteCurrentDevice() {
+  const mac = $("#deviceMac").value;
+  const device = devices.find(item => item.mac === mac);
+  if (!mac || !confirm(`'${device?.name || mac}' 기기를 삭제하시겠습니까?\n\n삭제 후 네트워크에서 다시 발견되어도 목록에 표시되지 않습니다.`)) return;
+  prefs[mac] = { deleted: true };
+  delete policies[mac];
+  localStorage.setItem("khnc-policies", JSON.stringify(policies));
+  persistPolicies().catch(() => {});
+  savePrefs();
+  $("#deviceDialog").close();
+  devices = devices.filter(item => item.mac !== mac);
+  render();
+}
+
+function deletedDeviceMacs() {
+  return Object.entries(prefs).filter(([, value]) => value?.deleted).map(([mac]) => mac);
+}
+
+function renderDeletedDeviceControl() {
+  const button = $("#restoreDeletedDevices");
+  if (!button) return;
+  const count = deletedDeviceMacs().length;
+  button.classList.toggle("hidden", count === 0);
+  button.textContent = `삭제 기기 복원${count ? ` (${count})` : ""}`;
+}
+
+function restoreDeletedDevices() {
+  const macs = deletedDeviceMacs();
+  if (!macs.length || !confirm(`삭제한 기기 ${macs.length}대를 다시 검색 가능하게 복원하시겠습니까?`)) return;
+  macs.forEach(mac => delete prefs[mac]);
+  savePrefs();
   load();
 }
 
@@ -1324,6 +1358,8 @@ $("#deviceForm").onsubmit = saveDevice;
 $("#cancelDevice").onclick = () => $("#deviceDialog").close();
 $("#closeDeviceDialog").onclick = () => $("#deviceDialog").close();
 $("#unregisterDevice").onclick = unregisterCurrent;
+$("#deleteDevice").onclick = deleteCurrentDevice;
+$("#restoreDeletedDevices").onclick = restoreDeletedDevices;
 $("#deviceType").onchange = () => { delete $("#iconSelect").dataset.touched; updatePreview(); };
 $("#iconSelect").onchange = () => { $("#iconSelect").dataset.touched = "1"; updatePreview(); };
 ["#displayName", "#location"].forEach(sel => $(sel).oninput = updatePreview);
@@ -1512,7 +1548,7 @@ normalize = function(raw){
   const found = normalizeDiscovered(raw);
   const seen = new Set(found.map(d=>d.mac));
   Object.entries(prefs).forEach(([mac,p])=>{
-    if(seen.has(mac) || !(p.registered||p.managed)) return;
+    if(seen.has(mac) || p.deleted || !(p.registered||p.managed)) return;
     const deviceType=p.deviceType||inferType(p.displayName||p.name||"");
     found.push({id:mac,mac,rawName:"",name:p.displayName||p.name||"등록 기기",owner:p.owner||"미지정",location:p.location||"미지정",manufacturer:p.manufacturer||"",model:p.model||"",platform:p.platform||"unknown",deviceType,icon:p.icon||iconKeyForType(deviceType),memo:p.memo||"",ip:"-",online:false,ethernetConnected:false,lastSeen:0,connectionPreference:p.connectionPreference||"wifi",connectionType:(p.connectionPreference==="lan"?"wired":"wifi"),network:(p.connectionPreference==="lan"?"LAN":"Wi-Fi"),ssid:"",signal:null,uploadBps:0,downloadBps:0,group:p.group||"미지정",favorite:!!p.favorite,parentMode:!!p.parentMode,registered:true});
   });
@@ -1523,9 +1559,24 @@ normalize = function(raw){
 
 const normalizeWithOffline = normalize;
 normalize = function(raw){
-  const found=normalizeWithOffline(raw); const seen=new Set(found.map(d=>d.mac));
-  (raw.wifi||[]).forEach(r=>(r.clients||[]).forEach(c=>{const mac=String(c.mac||"").toLowerCase();if(!mac||seen.has(mac))return;const p=prefs[mac]||{},registered=!!p.registered||!!p.managed,deviceType=p.deviceType||"other",ssid=connectedSsid(c.ssid)||connectedSsid(r.ssid),online=!!ssid;found.push({id:mac,mac,rawName:"",name:p.displayName||p.name||"Wi-Fi 기기",owner:p.owner||"미지정",location:p.location||"미지정",manufacturer:p.manufacturer||"",model:p.model||"",platform:p.platform||"unknown",deviceType,icon:p.icon||iconKeyForType(deviceType),memo:p.memo||"",ip:"-",online,ethernetConnected:false,lastSeen:online?Date.now():0,connectionPreference:"wifi",connectionType:"wifi",network:`Wi-Fi ${r.band||""}`.trim(),ssid,signal:online?(c.signal??null):null,uploadBps:0,downloadBps:0,group:p.group||"미지정",favorite:!!p.favorite,parentMode:!!p.parentMode,registered});seen.add(mac);}));
-  const order=readJSON("khnc-display-order",[]),rank=new Map(order.map((m,i)=>[m,i]));found.sort((a,b)=>(rank.get(a.mac)??99999)-(rank.get(b.mac)??99999));return found;
+  const found = normalizeWithOffline(raw);
+  const seen = new Set(found.map(d => d.mac));
+  (raw.wifi || []).forEach(r => (r.clients || []).forEach(c => {
+    const mac = String(c.mac || "").toLowerCase();
+    if (!mac || seen.has(mac)) return;
+    const p = prefs[mac] || {};
+    if (p.deleted) return;
+    const registered = !!p.registered || !!p.managed;
+    const deviceType = p.deviceType || "other";
+    const ssid = connectedSsid(c.ssid) || connectedSsid(r.ssid);
+    const online = !!ssid;
+    found.push({id:mac,mac,rawName:"",name:p.displayName||p.name||"Wi-Fi 기기",owner:p.owner||"미지정",location:p.location||"미지정",manufacturer:p.manufacturer||"",model:p.model||"",platform:p.platform||"unknown",deviceType,icon:p.icon||iconKeyForType(deviceType),memo:p.memo||"",ip:"-",online,ethernetConnected:false,lastSeen:online?Date.now():0,connectionPreference:"wifi",connectionType:"wifi",network:`Wi-Fi ${r.band||""}`.trim(),ssid,signal:online?(c.signal??null):null,uploadBps:0,downloadBps:0,group:p.group||"미지정",favorite:!!p.favorite,parentMode:!!p.parentMode,registered});
+    seen.add(mac);
+  }));
+  const order = readJSON("khnc-display-order", []);
+  const rank = new Map(order.map((m, i) => [m, i]));
+  found.sort((a, b) => (rank.get(a.mac) ?? 99999) - (rank.get(b.mac) ?? 99999));
+  return found;
 };
 
 

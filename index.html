@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>KHNC</title>
-  <link rel="stylesheet" href="./styles.css?v=0.10.2.1">
+  <link rel="stylesheet" href="./styles.css?v=0.10.2.3">
 </head>
 <body>
 <button id="mobileMenuButton" class="mobile-menu-button" aria-label="메뉴 열기">☰</button>
@@ -65,7 +65,10 @@
 
     <section class="heading">
       <div><h2>기기</h2><p>등록한 기기는 MAC 주소를 기준으로 이름·아이콘·위치 정보를 유지합니다.</p></div>
-      <button id="addGroup">+ 그룹 추가</button>
+      <div class="heading-actions">
+        <button id="restoreDeletedDevices" class="hidden">삭제 기기 복원</button>
+        <button id="addGroup">+ 그룹 추가</button>
+      </div>
     </section>
 
     <section id="grid" class="grid"></section>
@@ -203,6 +206,7 @@
 
     <div class="dialog-actions split">
       <button type="button" id="unregisterDevice" class="danger hidden">등록 해제</button>
+      <button type="button" id="deleteDevice" class="danger">기기 삭제</button>
       <span></span>
       <button type="button" id="cancelDevice">취소</button>
       <button type="submit" class="primary">저장</button>
@@ -317,6 +321,6 @@
   </form>
 </dialog>
 
-<script src="./app.js?v=0.10.2.2"></script>
+<script src="./app.js?v=0.10.2.3"></script>
 </body>
 </html>

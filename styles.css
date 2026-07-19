@@ -1967,3 +1967,7 @@ main{
 }
 
 /* KHNC v0.10.0: UI 유지, 저장소만 공유기 중심 구조로 전환 */
+
+/* KHNC v0.10.2: deleted-device controls */
+.heading-actions{display:flex;gap:8px;align-items:center}
+@media(max-width:680px){.heading-actions{width:100%;flex-wrap:wrap}.heading-actions button{flex:1}}
