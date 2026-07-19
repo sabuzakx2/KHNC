@@ -1,0 +1,32 @@
+#!/bin/sh /etc/rc.common
+
+START=95
+STOP=10
+USE_PROCD=1
+
+PROG=/usr/sbin/uhttpd
+DOCROOT=/usr/share/khnc/www
+PORT=8881
+
+start_service() {
+  [ -x "$PROG" ] || return 1
+  [ -r "$DOCROOT/index.html" ] || return 1
+
+  procd_open_instance
+  procd_set_param command "$PROG" \
+    -f \
+    -h "$DOCROOT" \
+    -r KHNC \
+    -x /cgi-bin \
+    -p "0.0.0.0:$PORT" \
+    -t 60 \
+    -T 30
+  procd_set_param respawn 3600 5 5
+  procd_set_param stdout 1
+  procd_set_param stderr 1
+  procd_close_instance
+}
+
+service_triggers() {
+  procd_add_reload_trigger khnc
+}
