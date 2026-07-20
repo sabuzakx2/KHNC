@@ -24,7 +24,7 @@ ACTION="$(param action)"; ACTION="${ACTION:-status}"
 
 load_config(){
   BACKUP_PROTOCOL=ssh; NAS_HOST=192.168.1.10; NAS_USER=kallos; NAS_PORT=2202; NAS_KEY=/root/.ssh/khnc_nas_key
-  REMOTE_PATH=/volume1/backup/khnc; SMB_SHARE=//192.168.1.10/backup; SMB_AUTH=/etc/khnc/smb.auth
+  REMOTE_PATH=KHNC_Backup; SMB_SHARE=//192.168.1.10/backup; SMB_AUTH=/etc/khnc/smb.auth
   RETENTION=5; SCHEDULE_ENABLED=0; SCHEDULE_DAY=0; SCHEDULE_TIME=03:30
   [ -r "$CONF" ] && . "$CONF"
 }
@@ -74,9 +74,9 @@ EOF
     printf '{"ok":true}'
   ;;
   test-nas)
-    if [ "$BACKUP_PROTOCOL" = smb ]; then command -v smbclient >/dev/null 2>&1 || fail 'smbclient 패키지가 필요합니다.'; smbclient "$SMB_SHARE" -A "$SMB_AUTH" -c 'ls' >/dev/null 2>&1; RC=$?
-    else [ -r "$NAS_KEY" ] || fail 'SSH 키 파일을 읽을 수 없습니다.'; ssh_cmd "mkdir -p '$REMOTE_PATH' && test -w '$REMOTE_PATH'" >/dev/null 2>&1; RC=$?; fi
-    [ "$RC" -eq 0 ] && printf '{"ok":true,"message":"NAS 연결 및 쓰기 권한 정상"}' || fail 'NAS 연결 또는 쓰기 권한을 확인하세요.'
+    if [ "$BACKUP_PROTOCOL" = smb ]; then command -v smbclient >/dev/null 2>&1 || fail 'smbclient 패키지가 필요합니다.'; smbclient "$SMB_SHARE" -A "$SMB_AUTH" -c 'ls' >/dev/null 2>&1; RC=$?; TARGET="$SMB_SHARE/${REMOTE_PATH#/}"
+    else [ -r "$NAS_KEY" ] || fail 'SSH 키 파일을 읽을 수 없습니다.'; TARGET="$(ssh_cmd "mkdir -p '$REMOTE_PATH' && cd '$REMOTE_PATH' && test -w . && pwd" 2>/dev/null)"; RC=$?; fi
+    [ "$RC" -eq 0 ] && printf '{"ok":true,"message":"NAS 연결 정상 · %s"}' "$(esc "$TARGET")" || fail 'NAS 연결 또는 쓰기 권한을 확인하세요.'
   ;;
   start)
     [ -x "$WORKER" ] || fail '백업 워커가 설치되지 않았습니다.'; [ ! -d /tmp/khnc-maintenance.lock ] || fail '이미 백업이 실행 중입니다.'

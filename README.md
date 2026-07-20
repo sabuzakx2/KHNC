@@ -48,6 +48,6 @@ KHNC v0.11 provides a Maintenance page for settings backup/restore, extroot SSD 
 
 SSD images are streamed directly from the router to the NAS (`dd | gzip | SHA256 | SSH/SMB`). No complete image is written to router storage. SSH mode requires key-based NAS access and `sha256sum` on both systems. SMB mode requires `smbclient` and a root-readable authentication file.
 
-The default SSH target uses port `2202`, key `/root/.ssh/khnc_nas_key`, and remote directory `/volume1/backup/khnc`. Change these values on the Maintenance page before starting a backup.
+The default SSH target uses port `2202`, key `/root/.ssh/khnc_nas_key`, and `KHNC_Backup` under the NAS user's home directory. This avoids requiring NAS administrator permission. Change these values on the Maintenance page before starting a backup.
 
 SSD restore is intentionally not executed by KHNC. The history screen only generates a restore command. Always boot a separate recovery environment, verify the destination device, and verify SHA256 before using it.

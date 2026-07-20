@@ -47,7 +47,7 @@ NAS_HOST='192.168.1.10'
 NAS_USER='kallos'
 NAS_PORT='2202'
 NAS_KEY='/root/.ssh/khnc_nas_key'
-REMOTE_PATH='/volume1/backup/khnc'
+REMOTE_PATH='KHNC_Backup'
 SMB_SHARE='//192.168.1.10/backup'
 SMB_AUTH='/etc/khnc/smb.auth'
 RETENTION='5'
@@ -55,6 +55,10 @@ SCHEDULE_ENABLED='0'
 SCHEDULE_DAY='0'
 SCHEDULE_TIME='03:30'
 EOF
+elif grep -q "^REMOTE_PATH='/volume1/backup/khnc'$" /etc/khnc/maintenance.conf; then
+  # v0.11 initial builds used a path that normally requires NAS administrator
+  # permission. Move the untouched default to the SSH user's writable home.
+  sed -i "s|^REMOTE_PATH='/volume1/backup/khnc'$|REMOTE_PATH='KHNC_Backup'|" /etc/khnc/maintenance.conf
 fi
 
 cp "$SOURCE_DIR/openwrt/khnc.init" "$INIT_SCRIPT"
