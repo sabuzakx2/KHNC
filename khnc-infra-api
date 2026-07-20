@@ -5,6 +5,13 @@ CFG=/etc/khnc/infra.json
 esc(){ printf '%s' "$1"|sed 's/\\/\\\\/g;s/"/\\"/g'; }
 check_ping(){ [ -n "$1" ] && ping -c 1 -W 1 "$1" >/dev/null 2>&1; }
 check_port(){ [ -n "$1" ] && [ -n "$2" ] && nc -z -w 1 "$1" "$2" >/dev/null 2>&1; }
+check_listener(){
+  PORT_TO_FIND="$1"
+  netstat -ln 2>/dev/null | awk -v port=":$PORT_TO_FIND" '$4 ~ port"$" { found=1 } END { exit !found }'
+}
+check_adguard_process(){
+  pidof AdGuardHome >/dev/null 2>&1 || ps w 2>/dev/null | grep -q '[A]dGuardHome'
+}
 start_ms(){ date +%s 2>/dev/null; }
 metric(){ printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -n 1; }
 router_lan_ip(){
@@ -83,9 +90,31 @@ for ID in ha adguard tvh ollama n8n mqtt; do
   IP="$(jsonfilter -i "$CFG" -e "@.services[@.id='$ID'].ip" 2>/dev/null)"
   PORT="$(jsonfilter -i "$CFG" -e "@.services[@.id='$ID'].port" 2>/dev/null)"
   [ -n "$NAME" ] || continue
+  if [ "$ID" = "adguard" ]; then
+    IP="$(router_lan_ip)"
+    # Keep existing custom configuration, while discovering the common KHNC
+    # ports when an older /etc/khnc/infra.json still points at port 3000.
+    for CANDIDATE_PORT in "$PORT" 3001 3000; do
+      [ -n "$CANDIDATE_PORT" ] || continue
+      if check_port "$IP" "$CANDIDATE_PORT"; then PORT="$CANDIDATE_PORT"; break; fi
+    done
+  fi
   T0="$(date +%s%3N 2>/dev/null)"; check_port "$IP" "$PORT"; OK=$?; T1="$(date +%s%3N 2>/dev/null)"
   case "$T0$T1" in *N*) MS=0;; *) MS=$((T1-T0));; esac
   [ "$FIRST" -eq 1 ] || printf ','; FIRST=0
-  printf '{"id":"%s","name":"%s","host":"%s","ip":"%s","port":"%s","online":%s,"responseMs":%s}' "$(esc "$ID")" "$(esc "$NAME")" "$(esc "$HOST")" "$(esc "$IP")" "$(esc "$PORT")" "$([ $OK -eq 0 ]&&echo true||echo false)" "$MS"
+  printf '{"id":"%s","name":"%s","host":"%s","ip":"%s","port":"%s","online":%s,"responseMs":%s' "$(esc "$ID")" "$(esc "$NAME")" "$(esc "$HOST")" "$(esc "$IP")" "$(esc "$PORT")" "$([ $OK -eq 0 ]&&echo true||echo false)" "$MS"
+  if [ "$ID" = "adguard" ]; then
+    check_adguard_process; ADGUARD_RUNNING=$?
+    check_listener 53; DNS_RUNNING=$?
+    ADGUARD_URL="http://$IP:$PORT"
+    printf ',"url":"%s","serviceRunning":%s,"serviceStatus":"%s","adminStatus":"%s","dnsRunning":%s,"dnsStatus":"%s"' \
+      "$(esc "$ADGUARD_URL")" \
+      "$([ $ADGUARD_RUNNING -eq 0 ] && echo true || echo false)" \
+      "$([ $ADGUARD_RUNNING -eq 0 ] && echo '작동 중' || echo '중지됨')" \
+      "$([ $OK -eq 0 ] && echo '접속 가능' || echo '응답 없음')" \
+      "$([ $DNS_RUNNING -eq 0 ] && echo true || echo false)" \
+      "$([ $DNS_RUNNING -eq 0 ] && echo 'DNS 수신 중' || echo 'DNS 중지')"
+  fi
+  printf '}'
 done
 printf '],"timestamp":%s}' "$(date +%s)"
