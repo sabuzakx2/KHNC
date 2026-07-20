@@ -89,7 +89,18 @@ EOF
   ;;
   start)
     [ -x "$WORKER" ] || fail '백업 워커가 설치되지 않았습니다.'; [ ! -d /tmp/khnc-maintenance.lock ] || fail '이미 백업이 실행 중입니다.'
-    nohup "$WORKER" manual >/dev/null 2>&1 & printf '{"ok":true,"message":"SSD 백업을 시작했습니다."}'
+    rm -f "$STATUS"
+    if command -v start-stop-daemon >/dev/null 2>&1; then
+      start-stop-daemon -S -b -x "$WORKER" -- manual >/dev/null 2>&1
+    elif command -v nohup >/dev/null 2>&1; then
+      nohup "$WORKER" manual >/dev/null 2>&1 &
+    else
+      "$WORKER" manual </dev/null >/dev/null 2>&1 &
+    fi
+    sleep 1
+    if [ -r "$STATUS" ] || [ -d /tmp/khnc-maintenance.lock ]; then printf '{"ok":true,"message":"SSD 백업을 시작했습니다."}'
+    else fail '백업 워커가 시작 직후 종료됐습니다. extroot 장치와 워커 실행 환경을 확인하세요.'
+    fi
   ;;
   history)
     if [ "$BACKUP_PROTOCOL" = smb ]; then
