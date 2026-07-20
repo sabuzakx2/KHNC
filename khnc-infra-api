@@ -9,6 +9,9 @@ check_listener(){
   PORT_TO_FIND="$1"
   netstat -ln 2>/dev/null | awk -v port=":$PORT_TO_FIND" '$4 ~ port"$" { found=1 } END { exit !found }'
 }
+check_adguard_dns(){
+  netstat -lnp 2>/dev/null | awk '$4 ~ /:53$/ && $NF ~ /AdGuardHome/ { found=1 } END { exit !found }'
+}
 check_adguard_process(){
   pidof AdGuardHome >/dev/null 2>&1 || ps w 2>/dev/null | grep -q '[A]dGuardHome'
 }
@@ -92,28 +95,43 @@ for ID in ha adguard tvh ollama n8n mqtt; do
   [ -n "$NAME" ] || continue
   if [ "$ID" = "adguard" ]; then
     IP="$(router_lan_ip)"
-    # Keep existing custom configuration, while discovering the common KHNC
-    # ports when an older /etc/khnc/infra.json still points at port 3000.
-    for CANDIDATE_PORT in "$PORT" 3001 3000; do
-      [ -n "$CANDIDATE_PORT" ] || continue
-      if check_port "$IP" "$CANDIDATE_PORT"; then PORT="$CANDIDATE_PORT"; break; fi
-    done
+    # This installation exposes the AdGuard Home administration UI on 3001.
+    # Do not let an older persisted infra.json switch the card back to 3000.
+    PORT=3001
   fi
-  T0="$(date +%s%3N 2>/dev/null)"; check_port "$IP" "$PORT"; OK=$?; T1="$(date +%s%3N 2>/dev/null)"
+  T0="$(date +%s%3N 2>/dev/null)"
+  check_port "$IP" "$PORT"; OK=$?
+  if [ "$ID" = "adguard" ] && [ "$OK" -ne 0 ]; then
+    check_port 127.0.0.1 "$PORT"; OK=$?
+  fi
+  T1="$(date +%s%3N 2>/dev/null)"
   case "$T0$T1" in *N*) MS=0;; *) MS=$((T1-T0));; esac
-  [ "$FIRST" -eq 1 ] || printf ','; FIRST=0
-  printf '{"id":"%s","name":"%s","host":"%s","ip":"%s","port":"%s","online":%s,"responseMs":%s' "$(esc "$ID")" "$(esc "$NAME")" "$(esc "$HOST")" "$(esc "$IP")" "$(esc "$PORT")" "$([ $OK -eq 0 ]&&echo true||echo false)" "$MS"
   if [ "$ID" = "adguard" ]; then
     check_adguard_process; ADGUARD_RUNNING=$?
-    check_listener 53; DNS_RUNNING=$?
+    check_adguard_dns; DNS_RUNNING=$?
+    check_listener 53; PORT53_RUNNING=$?
+    if [ "$DNS_RUNNING" -eq 0 ]; then DNS_STATUS='AdGuard DNS 작동 중'
+    elif [ "$PORT53_RUNNING" -eq 0 ]; then DNS_STATUS='53번 포트 확인 필요'
+    else DNS_STATUS='DNS 중지'
+    fi
+    # The service badge represents the AdGuard daemon. Administration access
+    # is reported separately and must not make a running DNS service OFFLINE.
+    [ "$ADGUARD_RUNNING" -eq 0 ] && ONLINE=true || ONLINE=false
+  else
+    [ "$OK" -eq 0 ] && ONLINE=true || ONLINE=false
+  fi
+  [ "$FIRST" -eq 1 ] || printf ','; FIRST=0
+  printf '{"id":"%s","name":"%s","host":"%s","ip":"%s","port":"%s","online":%s,"responseMs":%s' "$(esc "$ID")" "$(esc "$NAME")" "$(esc "$HOST")" "$(esc "$IP")" "$(esc "$PORT")" "$ONLINE" "$MS"
+  if [ "$ID" = "adguard" ]; then
     ADGUARD_URL="http://$IP:$PORT"
-    printf ',"url":"%s","serviceRunning":%s,"serviceStatus":"%s","adminStatus":"%s","dnsRunning":%s,"dnsStatus":"%s"' \
+    printf ',"url":"%s","serviceRunning":%s,"serviceStatus":"%s","adminReachable":%s,"adminStatus":"%s","dnsRunning":%s,"dnsStatus":"%s"' \
       "$(esc "$ADGUARD_URL")" \
       "$([ $ADGUARD_RUNNING -eq 0 ] && echo true || echo false)" \
       "$([ $ADGUARD_RUNNING -eq 0 ] && echo '작동 중' || echo '중지됨')" \
+      "$([ $OK -eq 0 ] && echo true || echo false)" \
       "$([ $OK -eq 0 ] && echo '접속 가능' || echo '응답 없음')" \
       "$([ $DNS_RUNNING -eq 0 ] && echo true || echo false)" \
-      "$([ $DNS_RUNNING -eq 0 ] && echo 'DNS 수신 중' || echo 'DNS 중지')"
+      "$(esc "$DNS_STATUS")"
   fi
   printf '}'
 done
