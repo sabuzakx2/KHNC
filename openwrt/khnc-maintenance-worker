@@ -1,0 +1,110 @@
+#!/bin/sh
+set -u
+
+CONF=/etc/khnc/maintenance.conf
+STATUS=/tmp/khnc-maintenance.status
+LOG_DIR=/etc/khnc/backup-logs
+LOCK=/tmp/khnc-maintenance.lock
+JOB_DIR=/tmp/khnc-maintenance-job.$$
+
+[ -r "$CONF" ] || exit 1
+. "$CONF"
+
+mkdir "$LOCK" 2>/dev/null || exit 2
+mkdir -p "$LOG_DIR" "$JOB_DIR"
+trap 'rm -f "$JOB_DIR"/* 2>/dev/null; rmdir "$JOB_DIR" "$LOCK" 2>/dev/null' EXIT INT TERM
+
+disk_device(){
+  DEV="$(df -P /overlay 2>/dev/null | awk 'NR==2 {print $1}')"
+  case "$DEV" in /dev/*) :;; *) DEV="$(awk '$2=="/overlay" && $1 ~ /^\/dev\// {print $1; exit}' /proc/mounts)";; esac
+  if [ -z "$DEV" ] && command -v block >/dev/null 2>&1; then DEV="$(block info 2>/dev/null | awk -F: '/MOUNT="\/overlay"/ {print $1; exit}')"; fi
+  case "$DEV" in
+    /dev/sd[a-z][0-9]*) printf '%s' "${DEV%[0-9]*}" ;;
+    /dev/mmcblk*p[0-9]*) printf '%s' "${DEV%p[0-9]*}" ;;
+    /dev/nvme*n*p[0-9]*) printf '%s' "${DEV%p[0-9]*}" ;;
+    /dev/*) printf '%s' "$DEV" ;;
+  esac
+}
+
+human_bytes(){ awk -v n="${1:-0}" 'BEGIN{split("B KB MB GB TB",u); i=1; while(n>=1024&&i<5){n/=1024;i++} printf "%.1f %s",n,u[i]}'; }
+write_status(){
+  TMP="$STATUS.$$"
+  printf 'state=%s\nfile=%s\ndevice=%s\ntotal=%s\nread=%s\npercent=%s\nspeed=%s\neta=%s\nfinal_size=%s\nstarted=%s\nfinished=%s\nmessage=%s\nlog=%s\n' \
+    "$STATE" "$FILE" "$DEVICE" "$TOTAL" "$READ" "$PERCENT" "$SPEED" "$ETA" "$FINAL_SIZE" "$STARTED" "$FINISHED" "$MESSAGE" "$LOG" > "$TMP"
+  mv "$TMP" "$STATUS"
+}
+
+DEVICE="$(disk_device)"
+[ -b "$DEVICE" ] || { printf 'extroot SSD not found\n' >&2; exit 3; }
+BASE="${DEVICE#/dev/}"
+SECTORS="$(cat "/sys/class/block/$BASE/size" 2>/dev/null || echo 0)"
+TOTAL=$((SECTORS * 512))
+[ "$TOTAL" -gt 0 ] || exit 4
+
+STAMP="$(date +%Y%m%d-%H%M%S)"
+HOST="$(uci -q get system.@system[0].hostname 2>/dev/null || hostname 2>/dev/null || echo openwrt)"
+FILE="khnc-${HOST}-${BASE}-${STAMP}.img.gz"
+LOG="$LOG_DIR/$FILE.log"
+STARTED="$(date +%s)"; FINISHED=0; READ=0; PERCENT=0; SPEED=0; ETA=0; FINAL_SIZE=0; STATE=running; MESSAGE='SSD 읽기 및 NAS 전송 중'
+write_status
+printf '[%s] backup started: %s -> %s (%s)\n' "$(date '+%F %T')" "$DEVICE" "$FILE" "$BACKUP_PROTOCOL" >> "$LOG"
+
+SOURCE_FIFO="$JOB_DIR/source"; GZIP_FIFO="$JOB_DIR/gzip"; HASH_FIFO="$JOB_DIR/hash"; HASH_RESULT="$JOB_DIR/sha256"
+mkfifo "$SOURCE_FIFO" "$GZIP_FIFO" "$HASH_FIFO"
+sha256sum < "$HASH_FIFO" > "$HASH_RESULT" & HASH_PID=$!
+
+upload_ssh(){
+  ssh -p "$NAS_PORT" -i "$NAS_KEY" "$NAS_USER@$NAS_HOST" "mkdir -p '$REMOTE_PATH' && cat > '$REMOTE_PATH/$FILE'"
+}
+upload_smb(){
+  SMB_DIR="${REMOTE_PATH#/}"
+  smbclient "$SMB_SHARE" -A "$SMB_AUTH" -c "cd $SMB_DIR; put - $FILE"
+}
+
+if [ "$BACKUP_PROTOCOL" = smb ]; then
+  tee "$HASH_FIFO" < "$GZIP_FIFO" | upload_smb >> "$LOG" 2>&1 & UPLOAD_PID=$!
+else
+  tee "$HASH_FIFO" < "$GZIP_FIFO" | upload_ssh >> "$LOG" 2>&1 & UPLOAD_PID=$!
+fi
+gzip -1 < "$SOURCE_FIFO" > "$GZIP_FIFO" 2>> "$LOG" & GZIP_PID=$!
+sync
+dd if="$DEVICE" of="$SOURCE_FIFO" bs=1048576 2>> "$LOG" & DD_PID=$!
+
+while kill -0 "$DD_PID" 2>/dev/null; do
+  sleep 2
+  READ="$(awk '/^read_bytes:/ {rb=$2} /^rchar:/ {rc=$2} END {print rb>0?rb:rc}' "/proc/$DD_PID/io" 2>/dev/null)"; READ="${READ:-0}"
+  NOW="$(date +%s)"; ELAPSED=$((NOW - STARTED)); [ "$ELAPSED" -gt 0 ] || ELAPSED=1
+  SPEED=$((READ / ELAPSED)); PERCENT=$((READ * 100 / TOTAL)); [ "$PERCENT" -le 100 ] || PERCENT=100
+  if [ "$SPEED" -gt 0 ]; then ETA=$(((TOTAL - READ) / SPEED)); else ETA=0; fi
+  write_status
+done
+
+wait "$DD_PID"; DD_RC=$?
+wait "$GZIP_PID"; GZIP_RC=$?
+wait "$UPLOAD_PID"; UPLOAD_RC=$?
+wait "$HASH_PID"; HASH_RC=$?
+
+if [ "$DD_RC" -ne 0 ] || [ "$GZIP_RC" -ne 0 ] || [ "$UPLOAD_RC" -ne 0 ] || [ "$HASH_RC" -ne 0 ]; then
+  STATE=failed; MESSAGE="백업 실패 (dd=$DD_RC gzip=$GZIP_RC upload=$UPLOAD_RC sha=$HASH_RC)"; FINISHED="$(date +%s)"; write_status
+  printf '[%s] %s\n' "$(date '+%F %T')" "$MESSAGE" >> "$LOG"
+  exit 5
+fi
+
+HASH="$(awk '{print $1}' "$HASH_RESULT")"
+if [ "$BACKUP_PROTOCOL" = smb ]; then
+  printf '%s  %s\n' "$HASH" "$FILE" > "$JOB_DIR/$FILE.sha256"
+  smbclient "$SMB_SHARE" -A "$SMB_AUTH" -c "cd ${REMOTE_PATH#/}; put $JOB_DIR/$FILE.sha256 $FILE.sha256" >> "$LOG" 2>&1 || true
+  FINAL_SIZE="$(smbclient "$SMB_SHARE" -A "$SMB_AUTH" -c "cd ${REMOTE_PATH#/}; ls $FILE" 2>/dev/null | awk -v file="$FILE" '$1==file {print $2; exit}')"; FINAL_SIZE="${FINAL_SIZE:-0}"
+  OLD_FILES="$(smbclient "$SMB_SHARE" -A "$SMB_AUTH" -c "cd ${REMOTE_PATH#/}; ls khnc-*.img.gz" 2>/dev/null | awk '$1 ~ /^khnc-.*\.img\.gz$/ {print $1}' | sort -r | awk -v keep="$RETENTION" 'NR>keep')"
+  for OLD_FILE in $OLD_FILES; do
+    smbclient "$SMB_SHARE" -A "$SMB_AUTH" -c "cd ${REMOTE_PATH#/}; del $OLD_FILE; del $OLD_FILE.sha256" >> "$LOG" 2>&1 || true
+  done
+else
+  ssh -p "$NAS_PORT" -i "$NAS_KEY" "$NAS_USER@$NAS_HOST" "printf '%s  %s\\n' '$HASH' '$FILE' > '$REMOTE_PATH/$FILE.sha256'; stat -c %s '$REMOTE_PATH/$FILE' 2>/dev/null || wc -c < '$REMOTE_PATH/$FILE'" > "$JOB_DIR/final-size" 2>> "$LOG" || true
+  FINAL_SIZE="$(tail -n 1 "$JOB_DIR/final-size" 2>/dev/null)"; FINAL_SIZE="${FINAL_SIZE:-0}"
+  ssh -p "$NAS_PORT" -i "$NAS_KEY" "$NAS_USER@$NAS_HOST" "cd '$REMOTE_PATH' && ls -1t khnc-*.img.gz 2>/dev/null | awk 'NR>$RETENTION' | while read f; do rm -f \"\$f\" \"\$f.sha256\"; done" >> "$LOG" 2>&1 || true
+fi
+
+READ="$TOTAL"; PERCENT=100; FINISHED="$(date +%s)"; ELAPSED=$((FINISHED - STARTED)); [ "$ELAPSED" -gt 0 ] || ELAPSED=1; SPEED=$((TOTAL / ELAPSED)); ETA=0; STATE=complete; MESSAGE="백업 완료 · $(human_bytes "$FINAL_SIZE")"
+write_status
+printf '[%s] backup complete: %s sha256=%s size=%s\n' "$(date '+%F %T')" "$FILE" "$HASH" "$FINAL_SIZE" >> "$LOG"

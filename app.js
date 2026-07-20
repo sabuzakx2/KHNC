@@ -1051,7 +1051,7 @@ async function saveManagePolicy(e) {
 
 function setView(view) {
   activeView = view;
-  const titles = { dashboard: "대시보드", devices: "기기", parentMode: "부모모드", management: "관리", statistics: "통계" };
+  const titles = { dashboard: "대시보드", devices: "기기", parentMode: "부모모드", management: "관리", statistics: "통계", maintenance: "유지관리", system: "시스템", homeInfra: "홈 인프라" };
   document.querySelectorAll(".app-view").forEach(el => el.classList.add("hidden-view"));
   document.getElementById(`${view}View`)?.classList.remove("hidden-view");
   document.querySelectorAll("#sideNav [data-view]").forEach(b => b.classList.toggle("active", b.dataset.view === view));
@@ -1410,16 +1410,16 @@ setInterval(refreshTraffic, TRAFFIC_INTERVAL_MS);
 setInterval(load, NETWORK_REFRESH_INTERVAL_MS);
 
 /* KHNC version information */
-let KHNC_VERSION = "0.10.2 Stable";
-let KHNC_BUILD = "20260718.11";
+let KHNC_VERSION = "0.11.0 Stable";
+let KHNC_BUILD = "20260720.01";
 
 async function loadVersionInfo() {
   try {
     const r = await fetch(`./version.json?_=${Date.now()}`, { cache: "no-store" });
     if (!r.ok) return;
     const v = await r.json();
-    KHNC_VERSION = `${v.version || "0.10.2"}${v.channel ? ` ${v.channel}` : ""}`;
-    KHNC_BUILD = v.build || "20260718.11";
+    KHNC_VERSION = `${v.version || "0.11.0"}${v.channel ? ` ${v.channel}` : ""}`;
+    KHNC_BUILD = v.build || "20260720.01";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
   const buildEl = document.querySelector("#khncBuildText");
@@ -1598,3 +1598,88 @@ async function refreshInfrastructureStatus(){
 }
 refreshInfrastructureStatus();
 setInterval(refreshInfrastructureStatus,60000);
+
+/* KHNC v0.11 Maintenance */
+const MAINTENANCE_API = "/cgi-bin/khnc-maintenance-api";
+let maintenanceLoaded = false;
+let maintenanceLastJobKey = "";
+
+function formatDuration(seconds) {
+  seconds = Math.max(0, Number(seconds) || 0);
+  const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = Math.floor(seconds % 60);
+  return h ? `${h}시간 ${m}분` : m ? `${m}분 ${s}초` : `${s}초`;
+}
+async function maintenanceRequest(action, values = null) {
+  const options = { cache: "no-store" };
+  let url = `${MAINTENANCE_API}?action=${encodeURIComponent(action)}&_=${Date.now()}`;
+  if (values) {
+    options.method = "POST";
+    options.headers = { "Content-Type": "application/x-www-form-urlencoded" };
+    options.body = new URLSearchParams({ action, ...values }).toString();
+  }
+  const response = await fetch(url, options);
+  let data = {};
+  try { data = await response.json(); } catch (_) { throw new Error(`API 응답 오류 (HTTP ${response.status})`); }
+  if (!response.ok || data.ok === false) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+function maintenanceConfigValues() {
+  return {
+    protocol: $("#maintenanceProtocol").value,
+    nasHost: $("#maintenanceNasHost").value.trim(), nasUser: $("#maintenanceNasUser").value.trim(), nasPort: $("#maintenanceNasPort").value,
+    nasKey: $("#maintenanceNasKey").value.trim(), remotePath: $("#maintenanceRemotePath").value.trim(), smbShare: $("#maintenanceSmbShare").value.trim(),
+    smbAuth: $("#maintenanceSmbAuth").value.trim(), retention: $("#maintenanceRetention").value,
+    scheduleEnabled: $("#maintenanceScheduleEnabled").value, scheduleDay: $("#maintenanceScheduleDay").value, scheduleTime: $("#maintenanceScheduleTime").value
+  };
+}
+async function loadMaintenanceConfig() {
+  const { config: c } = await maintenanceRequest("config");
+  $("#maintenanceProtocol").value = c.protocol || "ssh"; $("#maintenanceNasHost").value = c.nasHost || ""; $("#maintenanceNasUser").value = c.nasUser || "";
+  $("#maintenanceNasPort").value = c.nasPort || 2202; $("#maintenanceNasKey").value = c.nasKey || ""; $("#maintenanceRemotePath").value = c.remotePath || "";
+  $("#maintenanceSmbShare").value = c.smbShare || ""; $("#maintenanceSmbAuth").value = c.smbAuth || ""; $("#maintenanceRetention").value = c.retention || 5;
+  $("#maintenanceScheduleEnabled").value = String(c.scheduleEnabled || 0); $("#maintenanceScheduleDay").value = String(c.scheduleDay || 0); $("#maintenanceScheduleTime").value = c.scheduleTime || "03:30";
+}
+async function refreshMaintenanceStatus() {
+  try {
+    const { disk, job } = await maintenanceRequest("status");
+    $("#maintenanceDiskInfo").innerHTML = disk.detected ? `<span>마운트</span><strong>${escapeHtml(disk.mountDevice)}</strong><span>전체 디스크</span><strong>${escapeHtml(disk.device)}</strong><span>용량</span><strong>${formatBytes(disk.size)}</strong>` : `<strong class="status-bad">extroot SSD를 찾지 못했습니다.</strong>`;
+    const running = job.state === "running";
+    $("#startSsdBackup").disabled = running || !disk.detected;
+    $("#backupJobState").textContent = ({running:"백업 중",complete:"완료",failed:"실패",idle:"대기"})[job.state] || job.state;
+    $("#backupJobState").className = `maintenance-state ${job.state}`;
+    const percent = Math.max(0, Math.min(100, Number(job.percent) || 0));
+    $("#backupProgressBar").style.width = `${percent}%`; $("#backupProgressPercent").textContent = `${percent}%`;
+    $("#backupProgressDetails").innerHTML = `<div><span>파일</span><strong>${escapeHtml(job.file || "-")}</strong></div><div><span>읽음</span><strong>${formatBytes(job.read || 0)} / ${formatBytes(job.total || disk.size || 0)}</strong></div><div><span>속도</span><strong>${formatBytes(job.speed || 0)}/s</strong></div><div><span>예상 남은 시간</span><strong>${running ? formatDuration(job.eta) : "-"}</strong></div><div><span>최종 크기</span><strong>${job.finalSize ? formatBytes(job.finalSize) : "-"}</strong></div><div><span>상태</span><strong>${escapeHtml(job.message || "-")}</strong></div>`;
+    $("#backupLog").textContent = job.log || "실행 기록이 없습니다.";
+    const jobKey = `${job.state}:${job.file}:${job.finished || 0}`;
+    if (job.state === "complete" && jobKey !== maintenanceLastJobKey) refreshBackupHistory();
+    maintenanceLastJobKey = jobKey;
+  } catch (error) { $("#backupJobState").textContent = error.message; $("#backupJobState").className = "maintenance-state failed"; }
+}
+async function refreshBackupHistory() {
+  const target = $("#backupHistory"); target.innerHTML = "<p>NAS 이력을 읽는 중…</p>";
+  try {
+    const data = await maintenanceRequest("history");
+    if (!data.items?.length) { target.innerHTML = `<p>${escapeHtml(data.message || "저장된 SSD 이미지가 없습니다.")}</p>`; return; }
+    target.innerHTML = data.items.map(item => `<article><div><strong>${escapeHtml(item.file)}</strong><small>${formatBytes(item.size)} · SHA256 ${item.sha256 ? "있음" : "없음"}</small></div><div><button data-verify-backup="${escapeHtml(item.file)}" ${item.sha256?"":"disabled"}>SHA256 검증</button><button data-restore-command="${escapeHtml(item.file)}">복원 명령</button></div></article>`).join("");
+  } catch (error) { target.innerHTML = `<p class="status-bad">${escapeHtml(error.message)}</p>`; }
+}
+async function initializeMaintenance() {
+  if (!maintenanceLoaded) {
+    try { await loadMaintenanceConfig(); maintenanceLoaded = true; }
+    catch (error) { $("#nasTestResult").textContent = error.message; $("#nasTestResult").className = "maintenance-state failed"; }
+  }
+  await Promise.allSettled([refreshMaintenanceStatus(), refreshBackupHistory()]);
+}
+
+const maintenanceSetView = setView;
+setView = function(view) { maintenanceSetView(view); if (view === "maintenance") initializeMaintenance().catch(error => console.warn("KHNC maintenance:", error.message)); };
+$("#maintenanceBackupSettings").onclick = backupDb;
+$("#maintenanceRestoreSettings").onchange = async e => { try { if (e.target.files[0] && confirm("현재 KHNC 설정을 선택한 백업 파일로 교체하시겠습니까?")) await restoreDbFile(e.target.files[0]); } catch (error) { alert(`복원 실패: ${error.message}`); } finally { e.target.value=""; } };
+$("#maintenanceConfigForm").onsubmit = async e => { e.preventDefault(); try { await maintenanceRequest("save-config", maintenanceConfigValues()); $("#nasTestResult").textContent = "설정 저장됨"; $("#nasTestResult").className = "maintenance-state complete"; await refreshBackupHistory(); } catch (error) { alert(`저장 실패: ${error.message}`); } };
+$("#testNasConnection").onclick = async () => { const state=$("#nasTestResult"); state.textContent="테스트 중…"; try { await maintenanceRequest("save-config", maintenanceConfigValues()); const data=await maintenanceRequest("test-nas", {}); state.textContent=data.message; state.className="maintenance-state complete"; } catch(error){state.textContent=error.message;state.className="maintenance-state failed";} };
+$("#startSsdBackup").onclick = async () => { if (!confirm("extroot SSD 전체를 읽어 NAS로 스트리밍 백업합니다. 계속하시겠습니까?")) return; try { await maintenanceRequest("save-config", maintenanceConfigValues()); await maintenanceRequest("start", {}); await refreshMaintenanceStatus(); } catch(error){alert(`백업 시작 실패: ${error.message}`);} };
+$("#refreshMaintenance").onclick = refreshMaintenanceStatus; $("#refreshBackupHistory").onclick = refreshBackupHistory;
+$("#backupHistory").onclick = async e => { const verify=e.target.closest("[data-verify-backup]"); const restore=e.target.closest("[data-restore-command]"); try { if(verify){verify.disabled=true;const result=await maintenanceRequest("verify",{file:verify.dataset.verifyBackup});alert(`SHA256 검증 성공\n${result.message}`);verify.disabled=false;} if(restore){const result=await maintenanceRequest("restore-command",{file:restore.dataset.restoreCommand});$("#restoreCommandText").value=`주의: ${result.warning}\n\n${result.command}`;$("#restoreCommandDialog").showModal();} } catch(error){alert(error.message);if(verify)verify.disabled=false;} };
+$("#copyRestoreCommand").onclick = async () => { await navigator.clipboard.writeText($("#restoreCommandText").value); $("#copyRestoreCommand").textContent="복사 완료"; };
+setInterval(() => { if (activeView === "maintenance") refreshMaintenanceStatus(); }, 2000);

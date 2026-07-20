@@ -16,7 +16,7 @@ fail() { printf 'KHNC install error: %s\n' "$*" >&2; exit 1; }
 [ -r "$SOURCE_DIR/index.html" ] || fail "index.html not found in $SOURCE_DIR"
 [ -r "$SOURCE_DIR/openwrt/khnc.init" ] || fail "openwrt/khnc.init not found"
 
-mkdir -p "$APP_ROOT" "$CGI_ROOT" /etc/khnc
+mkdir -p "$APP_ROOT" "$CGI_ROOT" /etc/khnc /etc/khnc/backup-logs /usr/libexec
 
 # Preserve APIs that may only exist on an already-installed router.
 for API in "$LEGACY_CGI"/khnc-*; do
@@ -33,6 +33,29 @@ for API in "$SOURCE_DIR"/khnc-*; do
   cp "$API" "$CGI_ROOT/$(basename "$API")"
 done
 chmod 755 "$CGI_ROOT"/khnc-* 2>/dev/null || true
+
+if [ -r "$SOURCE_DIR/openwrt/khnc-maintenance-worker" ]; then
+  cp "$SOURCE_DIR/openwrt/khnc-maintenance-worker" /usr/libexec/khnc-maintenance-worker
+  chmod 755 /usr/libexec/khnc-maintenance-worker
+fi
+
+if [ ! -r /etc/khnc/maintenance.conf ]; then
+  umask 077
+  cat > /etc/khnc/maintenance.conf <<'EOF'
+BACKUP_PROTOCOL='ssh'
+NAS_HOST='192.168.1.10'
+NAS_USER='kallos'
+NAS_PORT='2202'
+NAS_KEY='/root/.ssh/khnc_nas_key'
+REMOTE_PATH='/volume1/backup/khnc'
+SMB_SHARE='//192.168.1.10/backup'
+SMB_AUTH='/etc/khnc/smb.auth'
+RETENTION='5'
+SCHEDULE_ENABLED='0'
+SCHEDULE_DAY='0'
+SCHEDULE_TIME='03:30'
+EOF
+fi
 
 cp "$SOURCE_DIR/openwrt/khnc.init" "$INIT_SCRIPT"
 chmod 755 "$INIT_SCRIPT"

@@ -13,4 +13,6 @@ if [ -x "$INIT_SCRIPT" ]; then
 fi
 
 rm -rf "$APP_DIR"
+rm -f /usr/libexec/khnc-maintenance-worker
+sed -i '/# KHNC-MAINTENANCE$/d' /etc/crontabs/root 2>/dev/null || true
 echo "KHNC standalone service removed. Configuration under /etc/khnc was preserved."
