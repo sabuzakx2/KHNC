@@ -19,7 +19,12 @@ valid_file(){ printf '%s' "$1" | grep -Eq '^khnc-[A-Za-z0-9._-]+\.img\.gz$'; }
 
 METHOD="${REQUEST_METHOD:-GET}"
 PARAMS="${QUERY_STRING:-}"
-if [ "$METHOD" = POST ]; then read -r -n "${CONTENT_LENGTH:-0}" BODY 2>/dev/null || BODY=''; PARAMS="$BODY"; fi
+if [ "$METHOD" = POST ]; then
+  LENGTH="${CONTENT_LENGTH:-0}"
+  case "$LENGTH" in ''|*[!0-9]*) LENGTH=0;; esac
+  BODY="$(dd bs=1 count="$LENGTH" 2>/dev/null)"
+  PARAMS="$BODY"
+fi
 ACTION="$(param action)"; ACTION="${ACTION:-status}"
 
 load_config(){
