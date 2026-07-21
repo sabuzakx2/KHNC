@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>KHNC</title>
-  <link rel="stylesheet" href="./styles.css?v=0.11.0.5">
+  <link rel="stylesheet" href="./styles.css?v=0.11.0.6">
 </head>
 <body>
 <button id="mobileMenuButton" class="mobile-menu-button" aria-label="메뉴 열기">☰</button>
@@ -24,7 +24,7 @@
     <div class="router"><i></i><div><b id="routerName">OpenWrt</b><small id="routerState">연결 확인 중</small></div></div>
     <div class="khnc-version" title="현재 설치된 KHNC 화면 버전">
       <b id="khncVersionText">KHNC v0.11.0 Stable</b>
-      <small id="khncBuildText">Build 20260721.05</small>
+      <small id="khncBuildText">Build 20260721.06</small>
     </div>
   </aside>
 
@@ -85,8 +85,13 @@
 
 
     <div id="systemView" class="app-view hidden-view">
-      <section class="page-intro"><p class="eyebrow">SYSTEM</p><h2>시스템</h2><p>버전, 빌드, OpenWrt 정보와 KHNC 데이터 백업을 관리합니다.</p></section>
+      <section class="page-intro"><p class="eyebrow">SYSTEM</p><h2>시스템</h2><p>OpenWrt 정보, 주변 Wi-Fi 채널 분석과 KHNC 데이터 백업을 관리합니다.</p></section>
       <section id="systemInfoGrid" class="system-info-grid"></section>
+      <section class="wifi-scan-panel">
+        <div class="panel-head"><div><p class="eyebrow">WI-FI ANALYZER</p><h3>주변 Wi-Fi 신호</h3><small>주변 AP의 채널과 신호를 검색해 채널 선택을 돕습니다.</small></div><button id="scanNearbyWifi">주변 Wi-Fi 검색</button></div>
+        <div id="wifiScanSummary" class="wifi-scan-summary"><p>검색 버튼을 눌러 주변 채널 사용 현황을 확인하세요.</p></div>
+        <div id="wifiScanResults" class="wifi-scan-results"></div>
+      </section>
       <section class="backup-panel">
         <div><h3>DB Backup / Restore</h3><p>기기 등록정보, 그룹, 정책, 인프라 설정을 JSON으로 백업하거나 복원합니다.</p></div>
         <div class="backup-actions"><button id="backupDb">백업 다운로드</button><label class="restore-label">복원 파일 선택<input id="restoreDb" type="file" accept="application/json"></label></div>
@@ -312,6 +317,6 @@
   </form>
 </dialog>
 
-<script src="./app.js?v=0.11.0.5"></script>
+<script src="./app.js?v=0.11.0.6"></script>
 </body>
 </html>

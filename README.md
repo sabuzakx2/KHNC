@@ -2,6 +2,8 @@
 
 KHNC runs as a standalone OpenWrt service on port `8881`. LuCI remains on its existing port and document root.
 
+The System page includes an on-demand nearby Wi-Fi analyzer. It uses OpenWrt `iwinfo` scan data to show SSID, band, channel, signal strength, and suggested 2.4/5 GHz channels. Install the `iwinfo` package if the router image does not already provide it.
+
 ## Install
 
 Copy this repository to the router, then run:

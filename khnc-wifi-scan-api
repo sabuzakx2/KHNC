@@ -1,0 +1,67 @@
+#!/bin/sh
+. /usr/share/libubox/jshn.sh
+
+printf 'Content-Type: application/json\r\n'
+printf 'Cache-Control: no-store\r\n\r\n'
+
+json_init
+json_add_boolean ok 1
+json_add_int timestamp "$(date +%s)"
+json_add_array networks
+
+if ! command -v iwinfo >/dev/null 2>&1; then
+  json_close_array
+  json_add_boolean available 0
+  json_add_string error "iwinfo가 설치되지 않았습니다. iwinfo 패키지가 필요합니다."
+  json_dump
+  exit 0
+fi
+
+TMP="/tmp/khnc-wifi-scan.$$"
+: > "$TMP"
+trap 'rm -f "$TMP"' EXIT
+
+INTERFACES="$(iwinfo 2>/dev/null | awk '/^[^[:space:]]+[[:space:]]+ESSID:/ {print $1}')"
+if [ -z "$INTERFACES" ]; then
+  INTERFACES="$(ls /sys/class/net 2>/dev/null | awk '/^(wlan|phy)/')"
+fi
+
+for IFACE in $INTERFACES; do
+  iwinfo "$IFACE" scan 2>/dev/null | awk -v iface="$IFACE" '
+    function clean(v) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); gsub(/\t/, " ", v); return v }
+    function emit() {
+      if (seen && channel != "") printf "%s\t%s\t%s\t%s\t%s\t%s\n", iface, mac, ssid, channel, signal, quality
+    }
+    /^[[:space:]]*Cell [0-9]+ - Address:/ {
+      emit(); seen=1; ssid="Hidden network"; channel=""; signal=""; quality=""; mac=$NF; next
+    }
+    /ESSID:/ { value=$0; sub(/^.*ESSID:[[:space:]]*/, "", value); gsub(/^"|"$/, "", value); ssid=clean(value); if (ssid=="") ssid="Hidden network"; next }
+    /Channel:/ { value=$0; sub(/^.*Channel:[[:space:]]*/, "", value); split(value,a," "); channel=a[1]; next }
+    /Signal:/ { value=$0; sub(/^.*Signal:[[:space:]]*/, "", value); split(value,a," "); signal=a[1]; if (match($0,/Quality:[[:space:]]*[0-9]+\/[0-9]+/)) { q=substr($0,RSTART,RLENGTH); sub(/^.*Quality:[[:space:]]*/,"",q); quality=q } next }
+    END { emit() }
+  ' >> "$TMP"
+done
+
+COUNT=0
+while IFS="$(printf '\t')" read -r IFACE MAC SSID CHANNEL SIGNAL QUALITY; do
+  [ -n "$CHANNEL" ] || continue
+  case "$CHANNEL" in *[!0-9]*) continue ;; esac
+  case "$SIGNAL" in -[0-9]*|[0-9]*) ;; *) SIGNAL=-100 ;; esac
+  if [ "$CHANNEL" -le 14 ]; then BAND="2.4 GHz"; else BAND="5 GHz"; fi
+  json_add_object ""
+  json_add_string interface "$IFACE"
+  json_add_string mac "$MAC"
+  json_add_string ssid "$SSID"
+  json_add_int channel "$CHANNEL"
+  json_add_int signal "$SIGNAL"
+  json_add_string quality "$QUALITY"
+  json_add_string band "$BAND"
+  json_close_object
+  COUNT=$((COUNT + 1))
+done < "$TMP"
+
+json_close_array
+json_add_boolean available 1
+json_add_int count "$COUNT"
+[ "$COUNT" -eq 0 ] && json_add_string warning "검색된 주변 Wi-Fi가 없습니다. 무선 인터페이스 상태를 확인하십시오."
+json_dump

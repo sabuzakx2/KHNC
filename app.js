@@ -1,5 +1,6 @@
 const API = "/cgi-bin/khnc-api";
 const SYSTEM_API = "/cgi-bin/khnc-system-api";
+const WIFI_SCAN_API = "/cgi-bin/khnc-wifi-scan-api";
 const TRAFFIC_API = "/cgi-bin/khnc-traffic-api";
 const POLICY_API = "/cgi-bin/khnc-policy-api";
 const PARENTAL_STATUS_API = "/cgi-bin/khnc-parental-status";
@@ -1442,7 +1443,7 @@ setInterval(load, NETWORK_REFRESH_INTERVAL_MS);
 
 /* KHNC version information */
 let KHNC_VERSION = "0.11.0 Stable";
-let KHNC_BUILD = "20260721.05";
+let KHNC_BUILD = "20260721.06";
 
 async function loadVersionInfo() {
   try {
@@ -1450,7 +1451,7 @@ async function loadVersionInfo() {
     if (!r.ok) return;
     const v = await r.json();
     KHNC_VERSION = `${v.version || "0.11.0"}${v.channel ? ` ${v.channel}` : ""}`;
-    KHNC_BUILD = v.build || "20260721.05";
+    KHNC_BUILD = v.build || "20260721.06";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
   const buildEl = document.querySelector("#khncBuildText");
@@ -1525,6 +1526,65 @@ function renderSystemPage(){
   ];
   $("#systemInfoGrid").innerHTML=info.map(x=>`<article class="system-info-card"><span>${x[0]}</span><strong>${escapeHtml(String(x[1]))}</strong></article>`).join("");
 }
+function wifiChannelRecommendations(networks) {
+  const score24 = new Map([1,6,11].map(channel => [channel,0]));
+  const score5 = new Map([36,40,44,48,149,153,157,161].map(channel => [channel,0]));
+  networks.forEach(network => {
+    const channel = Number(network.channel || 0);
+    const strength = Math.max(1, 100 + Number(network.signal || -100));
+    if (channel <= 14) {
+      score24.forEach((score,candidate) => {
+        const distance = Math.abs(channel - candidate);
+        if (distance < 5) score24.set(candidate, score + strength * (5 - distance));
+      });
+    } else if (score5.has(channel)) {
+      score5.set(channel, score5.get(channel) + strength);
+    }
+  });
+  const best = scores => [...scores].sort((a,b)=>a[1]-b[1] || a[0]-b[0])[0];
+  return { band24:best(score24), band5:best(score5) };
+}
+function renderWifiScan(payload) {
+  const summary = $("#wifiScanSummary");
+  const results = $("#wifiScanResults");
+  if (!summary || !results) return;
+  if (payload.available === false) {
+    summary.innerHTML=`<p class="wifi-scan-error">${escapeHtml(payload.error||"Wi-Fi 검색을 사용할 수 없습니다.")}</p>`;
+    results.innerHTML="";
+    return;
+  }
+  const networks = (Array.isArray(payload.networks) ? payload.networks : []).sort((a,b)=>Number(b.signal)-Number(a.signal));
+  const recommendation = wifiChannelRecommendations(networks);
+  const count24 = networks.filter(x=>Number(x.channel)<=14).length;
+  const count5 = networks.length-count24;
+  summary.innerHTML=`<article><span>검색된 AP</span><strong>${networks.length}개</strong></article><article><span>2.4 GHz</span><strong>${count24}개 · 추천 채널 ${recommendation.band24[0]}</strong></article><article><span>5 GHz</span><strong>${count5}개 · 추천 채널 ${recommendation.band5[0]}</strong></article><small>추천 채널은 현재 검색된 신호 세기와 채널 중첩을 기준으로 계산합니다.</small>`;
+  if (!networks.length) {
+    results.innerHTML=`<p class="wifi-scan-empty">${escapeHtml(payload.warning||"검색된 주변 Wi-Fi가 없습니다.")}</p>`;
+    return;
+  }
+  const signalLabel = value => value >= -55 ? "매우 강함" : value >= -67 ? "양호" : value >= -75 ? "보통" : "약함";
+  results.innerHTML=`<div class="wifi-scan-table"><div class="wifi-scan-row wifi-scan-head"><span>SSID</span><span>대역</span><span>채널</span><span>신호</span><span>상태</span></div>${networks.map(network=>{const signal=Number(network.signal||-100);return `<div class="wifi-scan-row"><strong>${escapeHtml(network.ssid||"Hidden network")}</strong><span>${escapeHtml(network.band||"")}</span><b>${Number(network.channel)||"-"}</b><span>${signal} dBm</span><em class="signal-${signal>=-67?"good":signal>=-75?"fair":"weak"}">${signalLabel(signal)}</em></div>`}).join("")}</div>`;
+}
+async function scanNearbyWifi() {
+  const button=$("#scanNearbyWifi");
+  const summary=$("#wifiScanSummary");
+  if (!button || button.disabled) return;
+  button.disabled=true; button.textContent="검색 중…";
+  summary.innerHTML="<p>주변 Wi-Fi를 검색하고 있습니다. 약 10~20초 걸릴 수 있습니다.</p>";
+  try {
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),55000);
+    const response=await fetch(`${WIFI_SCAN_API}?_=${Date.now()}`,{cache:"no-store",signal:controller.signal});
+    clearTimeout(timer);
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+    renderWifiScan(await response.json());
+  } catch(error) {
+    summary.innerHTML=`<p class="wifi-scan-error">검색 실패: ${escapeHtml(error.name==="AbortError"?"시간이 초과되었습니다.":error.message)}</p>`;
+    $("#wifiScanResults").innerHTML="";
+  } finally {
+    button.disabled=false; button.textContent="다시 검색";
+  }
+}
 async function backupDb(){
   try {
     await writeUnifiedState();
@@ -1567,6 +1627,7 @@ $("#mobileMenuButton").onclick=()=>{document.querySelector(".shell aside")?.clas
 $("#mobileBackdrop").onclick=()=>{$("#mobileBackdrop").classList.remove("show");document.querySelector(".shell aside")?.classList.remove("open")};
 $("#backupDb").onclick=backupDb;
 $("#restoreDb").onchange=async e=>{try{if(e.target.files[0])await restoreDbFile(e.target.files[0]);}catch(err){alert(`복원 실패: ${err.message}`)}};
+$("#scanNearbyWifi").onclick=scanNearbyWifi;
 lastRefreshAt=new Date();
 loadVersionInfo();
 render();
