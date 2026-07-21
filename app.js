@@ -580,15 +580,12 @@ function providerState(id) {
 }
 function renderHomeStatus() {
   const m = getRouterMetrics(lastRaw);
-  const online = devices.filter(d => d.online).length;
-  const configured = providerDefinitions.filter(p => providerState(p.id).connected).length;
   const counts = dashboardCounts();
   const cards = [
     { title: "인터넷", value: lastRaw ? "정상" : "확인 불가", sub: lastRaw ? "OpenWrt API 응답 정상" : "라우터 연결 필요", icon: "globe", ok: !!lastRaw },
     { title: "공유기", value: lastRaw ? m.hostname : "오프라인", sub: `업타임 ${formatUptime(m.uptime)}`, icon: "router", ok: !!lastRaw },
     { title: "LAN", value: `${counts.lan}대 연결`, sub: "현재 온라인 유선 기기", icon: "ethernet", ok: !!lastRaw },
-    { title: "무선 LAN", value: `${counts.wifi}대 연결`, sub: "현재 온라인 Wi-Fi 기기", icon: "wifi", ok: !!lastRaw },
-    { title: "외부 시스템", value: `${configured}/${providerDefinitions.length} 연결`, sub: "연결 설정에서 확장 가능", icon: "blocks", ok: configured > 0 }
+    { title: "무선 LAN", value: `${counts.wifi}대 연결`, sub: "현재 온라인 Wi-Fi 기기", icon: "wifi", ok: !!lastRaw }
   ];
   const svg = {
     globe:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>',
@@ -622,15 +619,6 @@ function renderRouterOverview() {
   ];
   $("#routerOverview").innerHTML = `<div class="panel-head"><div><p class="eyebrow">OPENWRT PROVIDER</p><h2>공유기 및 네트워크</h2></div><span class="provider-chip ${lastRaw ? "connected" : "planned"}">${lastRaw ? "실시간 연결" : "연결 안 됨"}</span></div><div class="metric-grid router-metric-grid">${cells.join("")}</div>`;
 }
-function renderProviderPanel() {
-  $("#providerPanel").innerHTML = `<div class="panel-head"><div><p class="eyebrow">PROVIDERS</p><h2>홈 인프라 연결</h2><small>연결 구조만 준비되어 있으며 실제 연결은 나중에 설정할 수 있습니다.</small></div><button id="openProviderSettings">연결 설정</button></div><div class="providers-grid">${providerDefinitions.map(p => { const st=providerState(p.id); return `<article class="provider-card ${st.connected ? "connected" : "planned"}">${iconHtml(p.icon)}<div><strong>${p.name}</strong><small>${p.description}</small></div><span>${st.label}</span></article>`; }).join("")}</div>`;
-  $("#openProviderSettings").onclick = openProviderDialog;
-}
-function openProviderDialog() {
-  $("#providerSettingsList").innerHTML = providerDefinitions.map(p => { const st=providerState(p.id); return `<div class="provider-setting"><div>${iconHtml(p.icon)}<div><strong>${p.name}</strong><small>${p.description}</small></div></div><span class="provider-chip ${st.connected ? "connected" : "planned"}">${p.builtIn ? "기본 연결" : "추후 연결"}</span></div>`; }).join("");
-  $("#providerDialog").showModal();
-}
-
 function renderSummary() {
   const online = devices.filter(d => d.online).length;
   const registered = devices.filter(d => d.registered).length;
@@ -1051,7 +1039,7 @@ async function saveManagePolicy(e) {
 
 function setView(view) {
   activeView = view;
-  const titles = { dashboard: "대시보드", devices: "기기", parentMode: "부모모드", management: "관리", statistics: "통계", maintenance: "유지관리", system: "시스템", homeInfra: "홈 인프라" };
+  const titles = { dashboard: "대시보드", devices: "기기", parentMode: "부모모드", management: "관리", statistics: "통계", maintenance: "유지관리", system: "시스템" };
   document.querySelectorAll(".app-view").forEach(el => el.classList.add("hidden-view"));
   document.getElementById(`${view}View`)?.classList.remove("hidden-view");
   document.querySelectorAll("#sideNav [data-view]").forEach(b => b.classList.toggle("active", b.dataset.view === view));
@@ -1163,7 +1151,7 @@ function renderStatistics() {
     </section>`;
 }
 
-function render() { renderHomeStatus(); renderRouterOverview(); renderProviderPanel(); renderSummary(); renderTabs(); renderCards(); renderParentMode(); renderManagement(); renderStatistics(); renderDeletedDeviceControl(); setView(activeView); }
+function render() { renderHomeStatus(); renderRouterOverview(); renderSummary(); renderTabs(); renderCards(); renderParentMode(); renderManagement(); renderStatistics(); renderDeletedDeviceControl(); setView(activeView); }
 
 function refreshLists() {
   $("#ownerList").innerHTML = owners.map(x => `<option value="${escapeHtml(x)}">`).join("");
@@ -1338,7 +1326,6 @@ async function load() {
 }
 
 $("#refresh").onclick = load;
-$("#providerSettingsButton").onclick = openProviderDialog;
 document.querySelectorAll("#sideNav [data-view]").forEach(b => b.onclick = () => setView(b.dataset.view));
 $("#search").oninput = renderCards;
 $("#sort").onchange = renderCards;
@@ -1411,7 +1398,7 @@ setInterval(load, NETWORK_REFRESH_INTERVAL_MS);
 
 /* KHNC version information */
 let KHNC_VERSION = "0.11.0 Stable";
-let KHNC_BUILD = "20260720.02";
+let KHNC_BUILD = "20260721.03";
 
 async function loadVersionInfo() {
   try {
@@ -1419,7 +1406,7 @@ async function loadVersionInfo() {
     if (!r.ok) return;
     const v = await r.json();
     KHNC_VERSION = `${v.version || "0.11.0"}${v.channel ? ` ${v.channel}` : ""}`;
-    KHNC_BUILD = v.build || "20260720.02";
+    KHNC_BUILD = v.build || "20260721.03";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
   const buildEl = document.querySelector("#khncBuildText");
@@ -1444,6 +1431,7 @@ const INFRA_DEFAULT = {
   ]
 };
 let infraConfig = readJSON("khnc-infra", INFRA_DEFAULT);
+let tailscaleStatus = { installed:false, running:false, connected:false, backendState:"확인 중", ip:"", peers:0, warning:"상태 확인 중" };
 let lastRefreshAt = null;
 
 function registeredDevices(){ return devices.filter(d=>d.registered); }
@@ -1474,22 +1462,18 @@ function renderStableDashboard(){
     target.innerHTML=`<div class="summary-grid">${cards.map(x=>`<article class="summary-card clickable-card" data-device-filter="${x[2]}" data-target-tab="${x[3]}"><span>${x[0]}</span><strong>${x[1]}</strong><small>목록 보기</small></article>`).join("")}</div>`;
     target.querySelectorAll("[data-device-filter]").forEach(el=>el.onclick=()=>{selected=el.dataset.targetTab||"전체";deviceConnectionFilter=el.dataset.deviceFilter||"all";setView("devices");renderTabs();renderCards();});
   }
-  let ev=$("#dashboardEvents");
-  if(!ev){ev=document.createElement("section");ev.id="dashboardEvents";ev.className="dashboard-event-panel";$("#dashboardView").appendChild(ev);}
-  const events=[];
-  Object.entries(parentalStatus||{}).forEach(([mac,s])=>{if(s?.blocked) events.push({time:"현재",title:`${devices.find(d=>d.mac===mac)?.name||mac} 부모모드 차단`,kind:"Parent Mode"});});
-  if(lastSystemRaw?.storage?.smart_available && lastSystemRaw.storage.health && lastSystemRaw.storage.health!=="정상") events.push({time:"최근 검사",title:`SMART ${lastSystemRaw.storage.health}`,kind:"Storage"});
-  const offlineServices=(infraConfig.services||[]).filter(s=>s.online===false).slice(0,3);
-  offlineServices.forEach(s=>events.push({time:"상태 확인",title:`${s.name} 서비스 확인 필요`,kind:"Home Infra"}));
-  ev.innerHTML=`<div class="panel-head"><div><p class="eyebrow">RECENT EVENTS</p><h2>최근 이벤트</h2></div></div><div class="dashboard-events">${(events.length?events:[{time:"현재",title:"새 이벤트가 없습니다.",kind:"System"}]).map(e=>`<div class="dashboard-event"><small>${e.time}</small><strong>${escapeHtml(e.title)}</strong><span>${e.kind}</span></div>`).join("")}</div>`;
+  renderSecurityStatus();
 }
-function renderHomeInfrastructure(){
-  const eq=infraConfig.equipment||[], sv=infraConfig.services||[];
-  const online=eq.filter(x=>x.online).length+sv.filter(x=>x.online).length, total=eq.length+sv.length;
-  $("#infraSummary").innerHTML=`<div><p class="eyebrow">HOME INFRA</p><h2>${online} / ${total} Online</h2><p>외부 장비는 IP·포트 또는 API 연동 후 실제 상태가 표시됩니다.</p></div><span class="provider-chip ${online?"connected":"planned"}">${online?"상태 수집 중":"연동 필요"}</span>`;
-  const card=(x,isService)=>`<article class="infra-card"><div class="infra-card-head"><div><small>${isService?escapeHtml(x.host||"서비스"):"장비"}</small><h3>${escapeHtml(x.name)}</h3></div><span class="infra-status ${x.online?"online":"offline"}">${x.online?"ONLINE":"OFFLINE"}</span></div><div class="infra-meta"><div><span>IP</span><strong>${escapeHtml(x.ip||"미설정")}</strong></div><div><span>Port</span><strong>${escapeHtml(String(x.port||"-"))}</strong></div><div><span>응답시간</span><strong>${escapeHtml(String(x.responseMs??"-"))}${x.responseMs!=null?" ms":""}</strong></div></div>${!isService&&x.id==="nas"?`<div class="infra-meta"><div><span>CPU</span><strong>${escapeHtml(x.cpu??"연동 필요")}</strong></div><div><span>Memory</span><strong>${escapeHtml(x.memory??"연동 필요")}</strong></div><div><span>Disk</span><strong>${escapeHtml(x.disk??"연동 필요")}</strong></div><div><span>SMART</span><strong>${escapeHtml(x.smart??"연동 필요")}</strong></div><div><span>Docker</span><strong>${escapeHtml(x.dockerCount??"연동 필요")}</strong></div><div><span>마지막 SMART</span><strong>${escapeHtml(x.lastSmart??"-")}</strong></div></div>`:""}${isService&&x.id==="adguard"?`<div class="infra-meta adguard-meta"><div><span>서비스</span><strong class="${x.serviceRunning?"status-ok":"status-bad"}">${escapeHtml(x.serviceStatus??"확인 불가")}</strong></div><div><span>관리 화면</span><strong class="${x.adminReachable?"status-ok":"status-bad"}">${escapeHtml(x.adminStatus??"확인 불가")}</strong></div><div><span>DNS 상태</span><strong class="${x.dnsRunning?"status-ok":"status-bad"}">${escapeHtml(x.dnsStatus??"확인 불가")}</strong></div><div class="infra-address"><span>접속 주소</span><a href="${escapeHtml(x.url||"#")}" target="_blank" rel="noopener noreferrer">${escapeHtml(x.url||"미설정")}</a></div></div>`:""}</article>`;
-  $("#equipmentGrid").innerHTML=`<div class="panel-head"><div><p class="eyebrow">EQUIPMENT</p><h2>장비</h2></div></div>${eq.map(x=>card(x,false)).join("")}`;
-  $("#serviceGrid").innerHTML=`<div class="panel-head"><div><p class="eyebrow">SERVICES</p><h2>서비스</h2></div></div>${sv.map(x=>card(x,true)).join("")}`;
+
+function renderSecurityStatus(){
+  const target=$("#securityStatus"); if(!target) return;
+  const adguard=(infraConfig.services||[]).find(item=>item.id==="adguard")||{};
+  const adguardHealthy=!!adguard.serviceRunning&&!!adguard.dnsRunning;
+  const ts=tailscaleStatus||{};
+  target.innerHTML=`<div class="panel-head"><div><p class="eyebrow">NETWORK SERVICES</p><h2>핵심 서비스 상태</h2></div></div><div class="security-status-grid">
+    <article class="security-service-card"><div class="security-card-head"><div><small>DNS PROTECTION</small><h3>AdGuard Home</h3></div><span class="service-light ${adguardHealthy?"good":"danger"}">${adguardHealthy?"정상":"점검 필요"}</span></div><div class="security-metrics"><div><span>작동 상태</span><strong class="${adguard.serviceRunning?"status-ok":"status-bad"}">${escapeHtml(adguard.serviceStatus||"확인 불가")}</strong></div><div><span>DNS 상태</span><strong class="${adguard.dnsRunning?"status-ok":"status-bad"}">${escapeHtml(adguard.dnsStatus||"확인 불가")}</strong></div><div><span>위험 경고등</span><strong class="${adguardHealthy?"status-ok":"status-bad"}">${adguardHealthy?"정상":"점검 필요"}</strong></div></div></article>
+    <article class="security-service-card"><div class="security-card-head"><div><small>REMOTE NETWORK</small><h3>Tailscale</h3></div><span class="service-light ${ts.connected?"good":"danger"}">${ts.connected?"연결됨":"연결 안 됨"}</span></div><div class="security-metrics"><div><span>서비스</span><strong class="${ts.running?"status-ok":"status-bad"}">${ts.running?"작동 중":(ts.installed?"중지됨":"미설치")}</strong></div><div><span>연결 상태</span><strong class="${ts.connected?"status-ok":"status-bad"}">${escapeHtml(ts.backendState||"확인 불가")}</strong></div><div><span>Tailscale IP</span><strong>${escapeHtml(ts.ip||"-")}</strong></div></div>${Number(ts.peers)>0?`<small class="security-footnote">온라인 피어 ${Number(ts.peers)}대</small>`:""}</article>
+  </div>`;
 }
 function renderSystemPage(){
   const m=getRouterMetrics(lastRaw); const info=[
@@ -1530,9 +1514,9 @@ async function restoreDbFile(file){
   location.reload();
 }
 const previousRender=render;
-render=function(){previousRender();renderStableDashboard();renderHomeInfrastructure();renderSystemPage();};
+render=function(){previousRender();renderStableDashboard();renderSystemPage();};
 const previousSetView=setView;
-setView=function(view){previousSetView(view);if(view==="homeInfra")renderHomeInfrastructure();if(view==="system")renderSystemPage();document.querySelector(".shell aside")?.classList.remove("open");$("#mobileBackdrop")?.classList.remove("show");};
+setView=function(view){previousSetView(view);if(view==="system")renderSystemPage();document.querySelector(".shell aside")?.classList.remove("open");$("#mobileBackdrop")?.classList.remove("show");};
 
 
 $("#mobileMenuButton").onclick=()=>{document.querySelector(".shell aside")?.classList.toggle("open");$("#mobileBackdrop")?.classList.toggle("show")};
@@ -1588,12 +1572,11 @@ async function refreshInfrastructureStatus(){
     const data=await r.json();
     if(Array.isArray(data.equipment)) infraConfig.equipment=data.equipment;
     if(Array.isArray(data.services)) infraConfig.services=data.services;
+    if(data.tailscale&&typeof data.tailscale==="object") tailscaleStatus=data.tailscale;
     localStorage.setItem('khnc-infra',JSON.stringify(infraConfig));
     scheduleStateSave();
-    renderHomeInfrastructure();
     renderStableDashboard();
     renderHomeStatus();
-    renderProviderPanel();
   }catch(e){ console.warn('KHNC infra status:',e.message); }
 }
 refreshInfrastructureStatus();

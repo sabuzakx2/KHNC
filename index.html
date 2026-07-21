@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>KHNC</title>
-  <link rel="stylesheet" href="./styles.css?v=0.11.0">
+  <link rel="stylesheet" href="./styles.css?v=0.11.0.3">
 </head>
 <body>
 <button id="mobileMenuButton" class="mobile-menu-button" aria-label="메뉴 열기">☰</button>
@@ -17,16 +17,14 @@
       <button data-view="devices">기기</button>
       <button data-view="parentMode">부모모드</button>
       <button data-view="management">관리</button>
-      <button data-view="homeInfra">홈 인프라</button>
       <button data-view="statistics">통계</button>
       <button data-view="maintenance">유지관리</button>
       <button data-view="system">시스템</button>
-      <button id="providerSettingsButton">연결 설정</button>
     </nav>
     <div class="router"><i></i><div><b id="routerName">OpenWrt</b><small id="routerState">연결 확인 중</small></div></div>
     <div class="khnc-version" title="현재 설치된 KHNC 화면 버전">
       <b id="khncVersionText">KHNC v0.11.0 Stable</b>
-      <small id="khncBuildText">Build 20260720.02</small>
+      <small id="khncBuildText">Build 20260721.03</small>
     </div>
   </aside>
 
@@ -44,8 +42,8 @@
     <div id="dashboardView" class="app-view">
       <section id="homeStatus" class="home-status"></section>
       <section id="routerOverview" class="router-overview"></section>
-      <section id="providerPanel" class="provider-panel"></section>
       <section id="summary" class="summary"></section>
+      <section id="securityStatus" class="dashboard-security"></section>
     </div>
 
     <div id="devicesView" class="app-view hidden-view">
@@ -85,13 +83,6 @@
       <section id="managementGrid" class="management-grid"></section>
     </div>
 
-
-    <div id="homeInfraView" class="app-view hidden-view">
-      <section class="page-intro"><p class="eyebrow">HOME INFRASTRUCTURE</p><h2>홈 인프라</h2><p>장비와 서비스를 분리해 상태를 확인합니다.</p></section>
-      <section id="infraSummary" class="infra-summary"></section>
-      <section id="equipmentGrid" class="infra-grid"></section>
-      <section id="serviceGrid" class="infra-grid"></section>
-    </div>
 
     <div id="systemView" class="app-view hidden-view">
       <section class="page-intro"><p class="eyebrow">SYSTEM</p><h2>시스템</h2><p>버전, 빌드, OpenWrt 정보와 KHNC 데이터 백업을 관리합니다.</p></section>
@@ -321,21 +312,6 @@
   </form>
 </dialog>
 
-<dialog id="providerDialog" class="provider-dialog">
-  <form method="dialog">
-    <div class="dialog-title-row">
-      <div>
-        <p class="eyebrow">PROVIDER CONNECTIONS</p>
-        <h3>외부 시스템 연결</h3>
-        <p>연결 구조만 준비되어 있습니다. 실제 API 주소와 인증은 이후 버전에서 설정합니다.</p>
-      </div>
-      <button class="icon-button" value="cancel" aria-label="닫기">×</button>
-    </div>
-    <div id="providerSettingsList" class="provider-settings-list"></div>
-    <div class="dialog-actions"><button value="cancel" class="primary">확인</button></div>
-  </form>
-</dialog>
-
-<script src="./app.js?v=0.11.0"></script>
+<script src="./app.js?v=0.11.0.3"></script>
 </body>
 </html>
