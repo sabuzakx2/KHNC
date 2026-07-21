@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>KHNC</title>
-  <link rel="stylesheet" href="./styles.css?v=0.11.0.6">
+  <link rel="stylesheet" href="./styles.css?v=0.11.0.7">
 </head>
 <body>
 <button id="mobileMenuButton" class="mobile-menu-button" aria-label="메뉴 열기">☰</button>
@@ -13,24 +13,21 @@
   <aside>
     <div class="brand"><span>K</span><div><b>KHNC</b><small>Home Infrastructure Control</small></div></div>
     <nav id="sideNav">
-      <button class="active" data-view="dashboard">대시보드</button>
-      <button data-view="devices">기기</button>
-      <button data-view="parentMode">부모모드</button>
-      <button data-view="management">관리</button>
-      <button data-view="statistics">통계</button>
-      <button data-view="maintenance">유지관리</button>
-      <button data-view="system">시스템</button>
+      <button class="active" data-view="dashboard" data-nav-group="dashboard">Dashboard</button>
+      <button data-view="devices" data-nav-group="devices">Devices</button>
+      <button data-view="parentMode" data-nav-group="deviceManagement">Device Management</button>
+      <button data-view="system" data-nav-group="system">System</button>
     </nav>
     <div class="router"><i></i><div><b id="routerName">OpenWrt</b><small id="routerState">연결 확인 중</small></div></div>
     <div class="khnc-version" title="현재 설치된 KHNC 화면 버전">
       <b id="khncVersionText">KHNC v0.11.0 Stable</b>
-      <small id="khncBuildText">Build 20260721.06</small>
+      <small id="khncBuildText">Build 20260721.07</small>
     </div>
   </aside>
 
   <main>
     <header>
-      <div><p>Kallos Home Network Control</p><h1>대시보드</h1></div>
+      <div><p>Kallos Home Network Control</p><h1>Dashboard</h1></div>
       <div class="actions">
         <input id="search" placeholder="이름, IP, MAC, 그룹, 위치 검색">
         <button id="refresh" title="새로고침">↻</button>
@@ -74,18 +71,21 @@
     </div>
 
     <div id="parentModeView" class="app-view hidden-view">
-      <section class="page-intro"><p class="eyebrow">PARENT MODE</p><h2>부모모드</h2><p>바로 관리할 기기만 별도로 모아봅니다. 그룹과는 독립적으로 지정됩니다.</p></section>
+      <nav class="section-subnav" aria-label="Device Management"><button class="active" data-subview="parentMode">Parent Mode</button><button data-subview="management">Management</button></nav>
+      <section class="page-intro"><p class="eyebrow">DEVICE MANAGEMENT</p><h2>Parent Mode</h2><p>바로 관리할 기기만 별도로 모아봅니다. 그룹과는 독립적으로 지정됩니다.</p></section>
       <section id="parentModeGrid" class="management-grid"></section>
     </div>
 
     <div id="managementView" class="app-view hidden-view">
-      <section class="page-intro"><p class="eyebrow">DEVICE MANAGEMENT</p><h2>기기 관리</h2><p>등록된 기기의 사용시간과 인터넷 정책을 관리합니다.</p></section>
+      <nav class="section-subnav" aria-label="Device Management"><button data-subview="parentMode">Parent Mode</button><button class="active" data-subview="management">Management</button></nav>
+      <section class="page-intro"><p class="eyebrow">DEVICE MANAGEMENT</p><h2>Management</h2><p>등록된 기기의 사용시간과 인터넷 정책을 관리합니다.</p></section>
       <section id="managementGrid" class="management-grid"></section>
     </div>
 
 
     <div id="systemView" class="app-view hidden-view">
-      <section class="page-intro"><p class="eyebrow">SYSTEM</p><h2>시스템</h2><p>OpenWrt 정보, 주변 Wi-Fi 채널 분석과 KHNC 데이터 백업을 관리합니다.</p></section>
+      <nav class="section-subnav" aria-label="System"><button class="active" data-subview="system">Overview</button><button data-subview="statistics">Statistics</button><button data-subview="maintenance">Maintenance</button></nav>
+      <section class="page-intro"><p class="eyebrow">SYSTEM</p><h2>Overview</h2><p>OpenWrt 정보, 주변 Wi-Fi 채널 분석과 KHNC 데이터 백업을 관리합니다.</p></section>
       <section id="systemInfoGrid" class="system-info-grid"></section>
       <section class="wifi-scan-panel">
         <div class="panel-head"><div><p class="eyebrow">WI-FI ANALYZER</p><h3>주변 Wi-Fi 신호</h3><small>주변 AP의 채널과 신호를 검색해 채널 선택을 돕습니다.</small></div><button id="scanNearbyWifi">주변 Wi-Fi 검색</button></div>
@@ -99,12 +99,14 @@
     </div>
 
     <div id="statisticsView" class="app-view hidden-view">
-      <section class="page-intro"><p class="eyebrow">NETWORK STATISTICS</p><h2>통계</h2><p>실시간 속도와 오늘·최근 7일·최근 30일 누적 사용량 및 기기별 상위 10개를 보여줍니다.</p></section>
+      <nav class="section-subnav" aria-label="System"><button data-subview="system">Overview</button><button class="active" data-subview="statistics">Statistics</button><button data-subview="maintenance">Maintenance</button></nav>
+      <section class="page-intro"><p class="eyebrow">SYSTEM</p><h2>Statistics</h2><p>실시간 속도와 오늘·최근 7일·최근 30일 누적 사용량 및 기기별 상위 10개를 보여줍니다.</p></section>
       <section id="statisticsGrid" class="statistics-grid"></section>
     </div>
 
     <div id="maintenanceView" class="app-view hidden-view">
-      <section class="page-intro"><p class="eyebrow">MAINTENANCE</p><h2>유지관리</h2><p>KHNC 설정과 extroot SSD 백업을 관리합니다. SSD 복원은 안전을 위해 명령 생성만 제공합니다.</p></section>
+      <nav class="section-subnav" aria-label="System"><button data-subview="system">Overview</button><button data-subview="statistics">Statistics</button><button class="active" data-subview="maintenance">Maintenance</button></nav>
+      <section class="page-intro"><p class="eyebrow">SYSTEM</p><h2>Maintenance</h2><p>KHNC 설정과 extroot SSD 백업을 관리합니다. SSD 복원은 안전을 위해 명령 생성만 제공합니다.</p></section>
       <section class="maintenance-grid">
         <article class="maintenance-card"><h3>설정 백업 / 복원</h3><p>기기, 그룹, 정책과 인프라 설정을 JSON으로 저장합니다.</p><div class="maintenance-actions"><button id="maintenanceBackupSettings">설정 백업</button><label class="restore-label">설정 복원<input id="maintenanceRestoreSettings" type="file" accept="application/json"></label></div></article>
         <article class="maintenance-card"><h3>extroot SSD</h3><div id="maintenanceDiskInfo" class="maintenance-kv">확인 중…</div><div class="maintenance-actions"><button id="startSsdBackup" class="primary">SSD 이미지 백업 시작</button><button id="refreshMaintenance">새로고침</button></div><p class="maintenance-warning">마운트된 SSD를 읽기 전용으로 백업합니다. 라우터에는 이미지 임시파일을 만들지 않지만, 백업 중 파일 변경은 이미지 일관성에 영향을 줄 수 있습니다.</p></article>
@@ -317,6 +319,6 @@
   </form>
 </dialog>
 
-<script src="./app.js?v=0.11.0.6"></script>
+<script src="./app.js?v=0.11.0.7"></script>
 </body>
 </html>

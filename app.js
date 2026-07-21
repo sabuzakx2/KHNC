@@ -1068,10 +1068,11 @@ async function saveManagePolicy(e) {
 
 function setView(view) {
   activeView = view;
-  const titles = { dashboard: "대시보드", devices: "기기", parentMode: "부모모드", management: "관리", statistics: "통계", maintenance: "유지관리", system: "시스템" };
+  const titles = { dashboard: "Dashboard", devices: "Devices", parentMode: "Parent Mode", management: "Management", statistics: "Statistics", maintenance: "Maintenance", system: "System" };
+  const navGroups = { dashboard:"dashboard", devices:"devices", parentMode:"deviceManagement", management:"deviceManagement", statistics:"system", maintenance:"system", system:"system" };
   document.querySelectorAll(".app-view").forEach(el => el.classList.add("hidden-view"));
   document.getElementById(`${view}View`)?.classList.remove("hidden-view");
-  document.querySelectorAll("#sideNav [data-view]").forEach(b => b.classList.toggle("active", b.dataset.view === view));
+  document.querySelectorAll("#sideNav [data-view]").forEach(b => b.classList.toggle("active", b.dataset.navGroup === navGroups[view]));
   document.querySelector("main header h1").textContent = titles[view] || "KHNC";
   const headerTitle = document.querySelector("main header > div:first-child");
   if (headerTitle) headerTitle.classList.toggle("hidden-view", view !== "dashboard");
@@ -1372,6 +1373,7 @@ async function load() {
 
 $("#refresh").onclick = load;
 document.querySelectorAll("#sideNav [data-view]").forEach(b => b.onclick = () => setView(b.dataset.view));
+document.querySelectorAll("[data-subview]").forEach(b => b.onclick = () => setView(b.dataset.subview));
 $("#search").oninput = renderCards;
 $("#sort").onchange = renderCards;
 $("#onlineFirst").onchange = renderCards;
@@ -1443,7 +1445,7 @@ setInterval(load, NETWORK_REFRESH_INTERVAL_MS);
 
 /* KHNC version information */
 let KHNC_VERSION = "0.11.0 Stable";
-let KHNC_BUILD = "20260721.06";
+let KHNC_BUILD = "20260721.07";
 
 async function loadVersionInfo() {
   try {
@@ -1451,7 +1453,7 @@ async function loadVersionInfo() {
     if (!r.ok) return;
     const v = await r.json();
     KHNC_VERSION = `${v.version || "0.11.0"}${v.channel ? ` ${v.channel}` : ""}`;
-    KHNC_BUILD = v.build || "20260721.06";
+    KHNC_BUILD = v.build || "20260721.07";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
   const buildEl = document.querySelector("#khncBuildText");
