@@ -1442,7 +1442,7 @@ setInterval(load, NETWORK_REFRESH_INTERVAL_MS);
 
 /* KHNC version information */
 let KHNC_VERSION = "0.11.0 Stable";
-let KHNC_BUILD = "20260721.04";
+let KHNC_BUILD = "20260721.05";
 
 async function loadVersionInfo() {
   try {
@@ -1450,7 +1450,7 @@ async function loadVersionInfo() {
     if (!r.ok) return;
     const v = await r.json();
     KHNC_VERSION = `${v.version || "0.11.0"}${v.channel ? ` ${v.channel}` : ""}`;
-    KHNC_BUILD = v.build || "20260721.04";
+    KHNC_BUILD = v.build || "20260721.05";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
   const buildEl = document.querySelector("#khncBuildText");
@@ -1503,7 +1503,7 @@ function renderStableDashboard(){
       ["Wi-Fi",c.wifi,"wifi","전체"],
       ["Guest",c.guest,"guest","등록안됨"]
     ];
-    target.innerHTML=`<div class="panel-head dashboard-section-head"><h2>DEVICE STATUS</h2></div><div class="summary-grid">${cards.map(x=>`<article class="summary-card clickable-card" data-device-filter="${x[2]}" data-target-tab="${x[3]}"><span>${x[0]}</span><strong>${x[1]}</strong><small>목록 보기</small></article>`).join("")}</div>`;
+    target.innerHTML=`<div class="panel-head dashboard-section-head"><h2>DEVICE STATUS</h2></div><div class="summary-grid">${cards.map(x=>`<article class="summary-card clickable-card" data-device-filter="${x[2]}" data-target-tab="${x[3]}"><span>${x[0]}</span><strong>${x[1]}</strong></article>`).join("")}</div>`;
     target.querySelectorAll("[data-device-filter]").forEach(el=>el.onclick=()=>{selected=el.dataset.targetTab||"전체";deviceConnectionFilter=el.dataset.deviceFilter||"all";setView("devices");renderTabs();renderCards();});
   }
   renderSecurityStatus();
@@ -1515,8 +1515,8 @@ function renderSecurityStatus(){
   const adguardHealthy=!!adguard.serviceRunning&&!!adguard.dnsRunning;
   const ts=tailscaleStatus||{};
   target.innerHTML=`<div class="panel-head dashboard-section-head"><h2>NETWORK SERVICE STATUS</h2></div><div class="security-status-grid">
-    <article class="security-service-card"><div class="security-card-head"><div><small>DNS PROTECTION</small><h3>AdGuard Home</h3></div><span class="service-light ${adguardHealthy?"good":"danger"}">${adguardHealthy?"정상":"점검 필요"}</span></div><div class="security-metrics"><div><span>작동 상태</span><strong class="${adguard.serviceRunning?"status-ok":"status-bad"}">${escapeHtml(adguard.serviceStatus||"확인 불가")}</strong></div><div><span>DNS 상태</span><strong class="${adguard.dnsRunning?"status-ok":"status-bad"}">${escapeHtml(adguard.dnsStatus||"확인 불가")}</strong></div><div><span>위험 경고등</span><strong class="${adguardHealthy?"status-ok":"status-bad"}">${adguardHealthy?"정상":"점검 필요"}</strong></div></div></article>
-    <article class="security-service-card"><div class="security-card-head"><div><small>REMOTE NETWORK</small><h3>Tailscale</h3></div><span class="service-light ${ts.connected?"good":"danger"}">${ts.connected?"연결됨":"연결 안 됨"}</span></div><div class="security-metrics"><div><span>서비스</span><strong class="${ts.running?"status-ok":"status-bad"}">${ts.running?"작동 중":(ts.installed?"중지됨":"미설치")}</strong></div><div><span>연결 상태</span><strong class="${ts.connected?"status-ok":"status-bad"}">${escapeHtml(ts.backendState||"확인 불가")}</strong></div><div><span>Tailscale IP</span><strong>${escapeHtml(ts.ip||"-")}</strong></div></div>${Number(ts.peers)>0?`<small class="security-footnote">온라인 피어 ${Number(ts.peers)}대</small>`:""}</article>
+    <article class="security-service-card"><div class="security-card-head"><div><small>DNS PROTECTION</small><h3>AdGuard Home</h3></div><span class="service-light ${adguardHealthy?"good":"danger"}">${adguardHealthy?"정상":"점검 필요"}</span></div><div class="security-metrics"><div><span>작동 상태</span><strong class="${adguard.serviceRunning?"status-ok":"status-bad"}">${adguard.serviceRunning?"Running":"Stopped"}</strong></div><div><span>DNS 상태</span><strong class="${adguard.dnsRunning?"status-ok":"status-bad"}">${adguard.dnsRunning?"AdGuard Running":"DNS Stopped"}</strong></div><div><span>위험 경고등</span><strong class="${adguardHealthy?"status-ok":"status-bad"}">${adguardHealthy?"정상":"점검 필요"}</strong></div></div></article>
+    <article class="security-service-card"><div class="security-card-head"><div><small>REMOTE NETWORK</small><h3>Tailscale</h3></div><span class="service-light ${ts.connected?"good":"danger"}">${ts.connected?"연결됨":"연결 안 됨"}</span></div><div class="security-metrics"><div><span>서비스</span><strong class="${ts.running?"status-ok":"status-bad"}">${ts.running?"Running":(ts.installed?"Stopped":"Not Installed")}</strong></div><div><span>연결 상태</span><strong class="${ts.connected?"status-ok":"status-bad"}">${escapeHtml(ts.backendState||"확인 불가")}</strong></div><div><span>Tailscale IP</span><strong>${escapeHtml(ts.ip||"-")}</strong></div></div>${Number(ts.peers)>0?`<small class="security-footnote">온라인 피어 ${Number(ts.peers)}대</small>`:""}</article>
   </div>`;
 }
 function renderSystemPage(){

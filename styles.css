@@ -1988,7 +1988,7 @@ main{
 #dashboardView #summary{margin-bottom:22px}
 #dashboardView #summary:before{content:none}
 .security-card-head h3{font-size:18px}
-.security-metrics strong{font-size:15px;line-height:1.35}
+.security-metrics strong{font-size:14px;line-height:1.35;white-space:nowrap}
 .security-metrics span{font-size:11px}
 .service-light{font-size:11px}
 .system-info-card span{font-size:13px}
@@ -1997,6 +1997,6 @@ main{
 .stat-card b{font-size:15px}
 .traffic-ranking h3{font-size:16px}
 .ranking-device strong,.ranking-row>b{font-size:13px}
-.summary strong{font-size:23px}
+.summary strong{font-size:20px}
 .router-metric-grid strong{font-size:15px;line-height:1.3}
 @media(max-width:680px){.dashboard-section-head{align-items:flex-start}.dashboard-section-head h2{font-size:15px}}
