@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>KHNC</title>
-  <link rel="stylesheet" href="./styles.css?v=0.11.0.3">
+  <link rel="stylesheet" href="./styles.css?v=0.11.0.4">
 </head>
 <body>
 <button id="mobileMenuButton" class="mobile-menu-button" aria-label="메뉴 열기">☰</button>
@@ -24,7 +24,7 @@
     <div class="router"><i></i><div><b id="routerName">OpenWrt</b><small id="routerState">연결 확인 중</small></div></div>
     <div class="khnc-version" title="현재 설치된 KHNC 화면 버전">
       <b id="khncVersionText">KHNC v0.11.0 Stable</b>
-      <small id="khncBuildText">Build 20260721.03</small>
+      <small id="khncBuildText">Build 20260721.04</small>
     </div>
   </aside>
 
@@ -41,9 +41,9 @@
 
     <div id="dashboardView" class="app-view">
       <section id="homeStatus" class="home-status"></section>
+      <section id="securityStatus" class="dashboard-security"></section>
       <section id="routerOverview" class="router-overview"></section>
       <section id="summary" class="summary"></section>
-      <section id="securityStatus" class="dashboard-security"></section>
     </div>
 
     <div id="devicesView" class="app-view hidden-view">
@@ -94,7 +94,7 @@
     </div>
 
     <div id="statisticsView" class="app-view hidden-view">
-      <section class="page-intro"><p class="eyebrow">NETWORK STATISTICS</p><h2>통계</h2><p>실시간 속도, 최근 1시간 누적 사용량, 오늘 누적 사용량을 구분해 보여줍니다.</p></section>
+      <section class="page-intro"><p class="eyebrow">NETWORK STATISTICS</p><h2>통계</h2><p>실시간 속도와 오늘·최근 7일·최근 30일 누적 사용량 및 기기별 상위 10개를 보여줍니다.</p></section>
       <section id="statisticsGrid" class="statistics-grid"></section>
     </div>
 
@@ -312,6 +312,6 @@
   </form>
 </dialog>
 
-<script src="./app.js?v=0.11.0.3"></script>
+<script src="./app.js?v=0.11.0.4"></script>
 </body>
 </html>

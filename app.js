@@ -23,6 +23,7 @@ let trafficPrevious = new Map();
 let trafficHistory = new Map();
 let wiredTrafficLastSeen = new Map();
 let usageBuckets = readJSON("khnc-usage-buckets", []);
+let usageDailyBuckets = readJSON("khnc-usage-daily", []);
 let activeView = "dashboard";
 let parentalStatus = {};
 const TRAFFIC_INTERVAL_MS = 3000;
@@ -340,7 +341,29 @@ async function persistPolicies() {
 }
 function savePrefs() { localStorage.setItem("khnc-prefs", JSON.stringify(prefs)); scheduleStateSave(0); }
 function groups() { return [...baseGroups, ...customGroups]; }
-function saveUsageBuckets(){ localStorage.setItem("khnc-usage-buckets", JSON.stringify(usageBuckets.slice(-3000))); }
+function localDayStart(time) { const day = new Date(time); day.setHours(0,0,0,0); return day.getTime(); }
+function addDailyUsage(time, mac, upload, download) {
+  const day = localDayStart(time);
+  const normalizedMac = String(mac || "").toLowerCase();
+  if (!normalizedMac) return;
+  let bucket = usageDailyBuckets.find(x => Number(x.day) === day && x.mac === normalizedMac);
+  if (!bucket) {
+    bucket = { day, mac: normalizedMac, upload: 0, download: 0 };
+    usageDailyBuckets.push(bucket);
+  }
+  bucket.upload += Number(upload || 0);
+  bucket.download += Number(download || 0);
+}
+function saveUsageBuckets(){
+  const dailyCutoff = localDayStart(Date.now() - 32 * 24 * 60 * 60 * 1000);
+  usageDailyBuckets = usageDailyBuckets.filter(x => Number(x.day) >= dailyCutoff);
+  localStorage.setItem("khnc-usage-buckets", JSON.stringify(usageBuckets.slice(-3000)));
+  localStorage.setItem("khnc-usage-daily", JSON.stringify(usageDailyBuckets));
+}
+if (!localStorage.getItem("khnc-usage-daily") && usageBuckets.length) {
+  usageBuckets.forEach(x => addDailyUsage(x.time, x.mac, x.upload, x.download));
+  saveUsageBuckets();
+}
 function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function iconKeyForType(type) { return ({"mini-pc":"desktop","smart-home":"home"}[type] || type || "other"); }
 function iconHtml(key, className = "") { const item = icons[key] || icons.other; return `<span class="device-icon ${className}">${item.svg}</span>`; }
@@ -435,7 +458,12 @@ async function refreshTraffic() {
       trafficHistory.set(key, hist);
       d.uploadBps = hist.reduce((a, x) => a + x.upload, 0) / hist.length;
       d.downloadBps = hist.reduce((a, x) => a + x.download, 0) / hist.length;
-      if (upload > 0 || download > 0) usageBuckets.push({ time: now, mac: d.mac, upload: upload * (TRAFFIC_INTERVAL_MS/1000), download: download * (TRAFFIC_INTERVAL_MS/1000) });
+      if (upload > 0 || download > 0) {
+        const uploadBytes = upload * (TRAFFIC_INTERVAL_MS/1000);
+        const downloadBytes = download * (TRAFFIC_INTERVAL_MS/1000);
+        usageBuckets.push({ time: now, mac: d.mac, upload: uploadBytes, download: downloadBytes });
+        addDailyUsage(now, d.mac, uploadBytes, downloadBytes);
+      }
       if (d.connectionType === "wired") {
         if (upload > 0 || download > 0) wiredTrafficLastSeen.set(d.mac, now);
         d.online = !!d.ethernetConnected || now - Number(wiredTrafficLastSeen.get(d.mac) || 0) < WIRED_TRAFFIC_GRACE_MS;
@@ -593,7 +621,7 @@ function renderHomeStatus() {
     wifi:'<svg viewBox="0 0 24 24"><path d="M3 8.5a14 14 0 0 1 18 0M6.5 12a9 9 0 0 1 11 0M10 15.5a4 4 0 0 1 4 0"/><circle cx="12" cy="19" r="1"/></svg>',
     blocks:'<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>'
   };
-  $("#homeStatus").innerHTML = `<div class="section-label"><div><p class="eyebrow">HOME STATUS</p><h2>집 전체 상태</h2></div><span class="overall ${lastRaw ? "good" : "bad"}">${lastRaw ? "정상" : "확인 필요"}</span></div><div class="home-status-grid">${cards.map(c => `<article class="status-card ${c.ok ? "ok" : "waiting"}"><div class="status-icon">${c.icon === "router" ? icons.router.svg : svg[c.icon]}</div><div><span>${c.title}</span><strong>${c.value}</strong><small>${c.sub}</small></div><i></i></article>`).join("")}</div>`;
+  $("#homeStatus").innerHTML = `<div class="section-label dashboard-section-head"><h2>HOME NETWORK STATUS</h2><span class="overall ${lastRaw ? "good" : "bad"}">${lastRaw ? "정상" : "확인 필요"}</span></div><div class="home-status-grid">${cards.map(c => `<article class="status-card ${c.ok ? "ok" : "waiting"}"><div class="status-icon">${c.icon === "router" ? icons.router.svg : svg[c.icon]}</div><div><span>${c.title}</span><strong>${c.value}</strong><small>${c.sub}</small></div><i></i></article>`).join("")}</div>`;
 }
 function renderRouterOverview() {
   const m = getRouterMetrics(lastRaw);
@@ -617,7 +645,7 @@ function renderRouterOverview() {
     `<div><span>OpenWrt Version</span><strong>${escapeHtml(m.version)}</strong></div>`,
     `<div><span>Total Devices</span><strong>${escapeHtml(String(devices.length))}</strong></div>`
   ];
-  $("#routerOverview").innerHTML = `<div class="panel-head"><div><p class="eyebrow">OPENWRT PROVIDER</p><h2>공유기 및 네트워크</h2></div><span class="provider-chip ${lastRaw ? "connected" : "planned"}">${lastRaw ? "실시간 연결" : "연결 안 됨"}</span></div><div class="metric-grid router-metric-grid">${cells.join("")}</div>`;
+  $("#routerOverview").innerHTML = `<div class="panel-head dashboard-section-head"><h2>OPENWRT STATUS</h2><span class="provider-chip ${lastRaw ? "connected" : "planned"}">${lastRaw ? "실시간 연결" : "연결 안 됨"}</span></div><div class="metric-grid router-metric-grid">${cells.join("")}</div>`;
 }
 function renderSummary() {
   const online = devices.filter(d => d.online).length;
@@ -1126,6 +1154,9 @@ function formatBytes(bytes) {
 function usageSince(ts) {
   return usageBuckets.filter(x => x.time >= ts).reduce((a,x)=>({ upload:a.upload+Number(x.upload||0), download:a.download+Number(x.download||0) }), {upload:0,download:0});
 }
+function dailyUsageSince(ts) {
+  return usageDailyBuckets.filter(x => Number(x.day) >= ts).reduce((a,x)=>({ upload:a.upload+Number(x.upload||0), download:a.download+Number(x.download||0) }), {upload:0,download:0});
+}
 function renderStatistics() {
   const target = $("#statisticsGrid");
   if (!target) return;
@@ -1133,6 +1164,10 @@ function renderStatistics() {
   const today = new Date(); today.setHours(0,0,0,0);
   const hour = usageSince(now - 60*60*1000);
   const day = usageSince(today.getTime());
+  const weekStart = new Date(today); weekStart.setDate(weekStart.getDate() - 6);
+  const monthStart = new Date(today); monthStart.setDate(monthStart.getDate() - 29);
+  const week = dailyUsageSince(weekStart.getTime());
+  const month = dailyUsageSince(monthStart.getTime());
   const up = devices.reduce((a,d)=>a+Number(d.uploadBps||0),0);
   const down = devices.reduce((a,d)=>a+Number(d.downloadBps||0),0);
   const rankSince = ts => {
@@ -1140,14 +1175,23 @@ function renderStatistics() {
     usageBuckets.filter(x=>x.time>=ts).forEach(x=>per.set(x.mac,(per.get(x.mac)||0)+Number(x.upload||0)+Number(x.download||0)));
     return [...devices].map(d=>({d,total:per.get(d.mac)||0})).sort((a,b)=>b.total-a.total).slice(0,10);
   };
+  const rankDailySince = ts => {
+    const per = new Map();
+    usageDailyBuckets.filter(x=>Number(x.day)>=ts).forEach(x=>per.set(x.mac,(per.get(x.mac)||0)+Number(x.upload||0)+Number(x.download||0)));
+    return [...devices].map(d=>({d,total:per.get(String(d.mac||"").toLowerCase())||0})).filter(x=>x.total>0).sort((a,b)=>b.total-a.total).slice(0,10);
+  };
   const rankHtml = rows => rows.length ? rows.map(({d,total},i)=>`<div class="ranking-row"><span class="rank-no">${i+1}</span>${iconHtml(d.icon,"ranking-icon")}<span class="ranking-device"><strong>${escapeHtml(d.name)}</strong><small>${escapeHtml(d.owner)} · ${escapeHtml(d.location)}</small></span><b>${formatBytes(total)}</b></div>`).join("") : "<p>표시할 데이터가 없습니다.</p>";
   target.innerHTML = `
     <article class="stat-card stat-live"><span>실시간 속도</span><strong>↓ ${formatRate(down)}</strong><b>↑ ${formatRate(up)}</b><small>최근 3회 평균</small></article>
     <article class="stat-card stat-usage"><span>최근 1시간 누적 사용량</span><strong>↓ ${formatBytes(hour.download)}</strong><b>↑ ${formatBytes(hour.upload)}</b><small>최근 60분 동안 집계</small></article>
     <article class="stat-card stat-usage"><span>오늘 누적 사용량</span><strong>↓ ${formatBytes(day.download)}</strong><b>↑ ${formatBytes(day.upload)}</b><small>오늘 00:00부터 집계</small></article>
+    <article class="stat-card stat-usage"><span>최근 7일 누적 사용량</span><strong>↓ ${formatBytes(week.download)}</strong><b>↑ ${formatBytes(week.upload)}</b><small>오늘 포함 최근 7일</small></article>
+    <article class="stat-card stat-usage"><span>최근 30일 누적 사용량</span><strong>↓ ${formatBytes(month.download)}</strong><b>↑ ${formatBytes(month.upload)}</b><small>오늘 포함 최근 30일</small></article>
     <section class="ranking-grid">
       <article class="traffic-ranking"><h3>최근 상위 기기 <small>최근 1시간 누적</small></h3>${rankHtml(rankSince(now-60*60*1000))}</article>
       <article class="traffic-ranking"><h3>오늘 사용량 상위 기기</h3>${rankHtml(rankSince(today.getTime()))}</article>
+      <article class="traffic-ranking"><h3>최근 7일 사용량 상위 10개</h3>${rankHtml(rankDailySince(weekStart.getTime()))}</article>
+      <article class="traffic-ranking"><h3>최근 30일 사용량 상위 10개</h3>${rankHtml(rankDailySince(monthStart.getTime()))}</article>
     </section>`;
 }
 
@@ -1398,7 +1442,7 @@ setInterval(load, NETWORK_REFRESH_INTERVAL_MS);
 
 /* KHNC version information */
 let KHNC_VERSION = "0.11.0 Stable";
-let KHNC_BUILD = "20260721.03";
+let KHNC_BUILD = "20260721.04";
 
 async function loadVersionInfo() {
   try {
@@ -1406,7 +1450,7 @@ async function loadVersionInfo() {
     if (!r.ok) return;
     const v = await r.json();
     KHNC_VERSION = `${v.version || "0.11.0"}${v.channel ? ` ${v.channel}` : ""}`;
-    KHNC_BUILD = v.build || "20260721.03";
+    KHNC_BUILD = v.build || "20260721.04";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
   const buildEl = document.querySelector("#khncBuildText");
@@ -1459,7 +1503,7 @@ function renderStableDashboard(){
       ["Wi-Fi",c.wifi,"wifi","전체"],
       ["Guest",c.guest,"guest","등록안됨"]
     ];
-    target.innerHTML=`<div class="summary-grid">${cards.map(x=>`<article class="summary-card clickable-card" data-device-filter="${x[2]}" data-target-tab="${x[3]}"><span>${x[0]}</span><strong>${x[1]}</strong><small>목록 보기</small></article>`).join("")}</div>`;
+    target.innerHTML=`<div class="panel-head dashboard-section-head"><h2>DEVICE STATUS</h2></div><div class="summary-grid">${cards.map(x=>`<article class="summary-card clickable-card" data-device-filter="${x[2]}" data-target-tab="${x[3]}"><span>${x[0]}</span><strong>${x[1]}</strong><small>목록 보기</small></article>`).join("")}</div>`;
     target.querySelectorAll("[data-device-filter]").forEach(el=>el.onclick=()=>{selected=el.dataset.targetTab||"전체";deviceConnectionFilter=el.dataset.deviceFilter||"all";setView("devices");renderTabs();renderCards();});
   }
   renderSecurityStatus();
@@ -1470,7 +1514,7 @@ function renderSecurityStatus(){
   const adguard=(infraConfig.services||[]).find(item=>item.id==="adguard")||{};
   const adguardHealthy=!!adguard.serviceRunning&&!!adguard.dnsRunning;
   const ts=tailscaleStatus||{};
-  target.innerHTML=`<div class="panel-head"><div><p class="eyebrow">NETWORK SERVICES</p><h2>핵심 서비스 상태</h2></div></div><div class="security-status-grid">
+  target.innerHTML=`<div class="panel-head dashboard-section-head"><h2>NETWORK SERVICE STATUS</h2></div><div class="security-status-grid">
     <article class="security-service-card"><div class="security-card-head"><div><small>DNS PROTECTION</small><h3>AdGuard Home</h3></div><span class="service-light ${adguardHealthy?"good":"danger"}">${adguardHealthy?"정상":"점검 필요"}</span></div><div class="security-metrics"><div><span>작동 상태</span><strong class="${adguard.serviceRunning?"status-ok":"status-bad"}">${escapeHtml(adguard.serviceStatus||"확인 불가")}</strong></div><div><span>DNS 상태</span><strong class="${adguard.dnsRunning?"status-ok":"status-bad"}">${escapeHtml(adguard.dnsStatus||"확인 불가")}</strong></div><div><span>위험 경고등</span><strong class="${adguardHealthy?"status-ok":"status-bad"}">${adguardHealthy?"정상":"점검 필요"}</strong></div></div></article>
     <article class="security-service-card"><div class="security-card-head"><div><small>REMOTE NETWORK</small><h3>Tailscale</h3></div><span class="service-light ${ts.connected?"good":"danger"}">${ts.connected?"연결됨":"연결 안 됨"}</span></div><div class="security-metrics"><div><span>서비스</span><strong class="${ts.running?"status-ok":"status-bad"}">${ts.running?"작동 중":(ts.installed?"중지됨":"미설치")}</strong></div><div><span>연결 상태</span><strong class="${ts.connected?"status-ok":"status-bad"}">${escapeHtml(ts.backendState||"확인 불가")}</strong></div><div><span>Tailscale IP</span><strong>${escapeHtml(ts.ip||"-")}</strong></div></div>${Number(ts.peers)>0?`<small class="security-footnote">온라인 피어 ${Number(ts.peers)}대</small>`:""}</article>
   </div>`;
