@@ -1445,7 +1445,7 @@ setInterval(load, NETWORK_REFRESH_INTERVAL_MS);
 
 /* KHNC version information */
 let KHNC_VERSION = "0.11.0 Stable";
-let KHNC_BUILD = "20260721.07";
+let KHNC_BUILD = "20260723.01";
 
 async function loadVersionInfo() {
   try {
@@ -1453,7 +1453,7 @@ async function loadVersionInfo() {
     if (!r.ok) return;
     const v = await r.json();
     KHNC_VERSION = `${v.version || "0.11.0"}${v.channel ? ` ${v.channel}` : ""}`;
-    KHNC_BUILD = v.build || "20260721.07";
+    KHNC_BUILD = v.build || "20260723.01";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
   const buildEl = document.querySelector("#khncBuildText");

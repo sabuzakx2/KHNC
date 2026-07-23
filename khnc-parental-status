@@ -1,0 +1,37 @@
+#!/bin/sh
+. /usr/share/libubox/jshn.sh
+
+POLICY_FILE="/etc/khnc/policies.json"
+TODAY="$(date +%F)"
+NOW="$(date +%s)"
+STATE_DIR="/etc/khnc/runtime/$TODAY"
+DAY_NUM="$(date +%u)"
+PERIOD="weekday"; [ "$DAY_NUM" -ge 6 ] && PERIOD="weekend"
+
+printf 'Content-Type: application/json\r\n'
+printf 'Cache-Control: no-store\r\n\r\n'
+printf '{"date":"%s","devices":[' "$TODAY"
+
+FIRST=1
+if [ -s "$POLICY_FILE" ]; then
+  json_init
+  if json_load_file "$POLICY_FILE" 2>/dev/null; then
+    json_select policies 2>/dev/null || true
+    json_get_keys ITEMS
+    for ITEM in $ITEMS; do
+      json_select "$ITEM" || continue
+      json_get_var MAC mac; json_get_var BONUS_DATE bonusDate; json_get_var BONUS_MIN bonusMinutes; json_get_var UNLIMITED_DATE unlimitedDate
+      SAFE_MAC="$(printf '%s' "$MAC" | tr 'A-F:' 'a-f_')"
+      START=0; [ -s "$STATE_DIR/$SAFE_MAC" ] && START="$(cat "$STATE_DIR/$SAFE_MAC" 2>/dev/null)"
+      case "$START" in ''|*[!0-9]*) START=0;; esac
+      USED=0; [ "$START" -gt 0 ] && USED=$(( (NOW - START) / 60 )); [ "$USED" -lt 0 ] && USED=0
+      [ "$BONUS_DATE" = "$TODAY" ] || BONUS_MIN=0
+      case "$BONUS_MIN" in ''|*[!0-9]*) BONUS_MIN=0;; esac
+      UNLIMITED=false; [ "$UNLIMITED_DATE" = "$TODAY" ] && UNLIMITED=true
+      [ "$FIRST" -eq 1 ] || printf ','; FIRST=0
+      printf '{"mac":"%s","period":"%s","startEpoch":%s,"usedMinutes":%s,"bonusMinutes":%s,"unlimited":%s}' "$MAC" "$PERIOD" "$START" "$USED" "$BONUS_MIN" "$UNLIMITED"
+      json_select ..
+    done
+  fi
+fi
+printf ']}\n'

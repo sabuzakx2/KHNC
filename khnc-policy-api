@@ -1,0 +1,47 @@
+#!/bin/sh
+. /usr/share/libubox/jshn.sh
+
+DATA_DIR="/etc/khnc"
+POLICY_FILE="$DATA_DIR/policies.json"
+ENFORCER="/usr/sbin/khnc-enforce"
+
+json_response() {
+  printf 'Content-Type: application/json\r\n'
+  printf 'Cache-Control: no-store\r\n\r\n'
+  printf '%s\n' "$1"
+}
+
+case "${REQUEST_METHOD:-GET}" in
+  GET)
+    if [ -s "$POLICY_FILE" ]; then
+      printf 'Content-Type: application/json\r\n'
+      printf 'Cache-Control: no-store\r\n\r\n'
+      cat "$POLICY_FILE"
+    else
+      json_response '{"policies":[]}'
+    fi
+    ;;
+  POST)
+    mkdir -p "$DATA_DIR" || { json_response '{"ok":false,"error":"설정 디렉터리를 만들지 못했습니다."}'; exit 1; }
+    LENGTH="${CONTENT_LENGTH:-0}"
+    case "$LENGTH" in ''|*[!0-9]*) LENGTH=0;; esac
+    [ "$LENGTH" -gt 0 ] || { json_response '{"ok":false,"error":"빈 요청입니다."}'; exit 1; }
+    TMP="$POLICY_FILE.tmp.$$"
+    dd bs=1 count="$LENGTH" of="$TMP" 2>/dev/null
+    if ! jsonfilter -i "$TMP" -e '@.policies' >/dev/null 2>&1; then
+      rm -f "$TMP"; json_response '{"ok":false,"error":"정책 JSON 형식이 올바르지 않습니다."}'; exit 1
+    fi
+    chmod 600 "$TMP"; mv "$TMP" "$POLICY_FILE"
+    if [ -x "$ENFORCER" ]; then
+      if "$ENFORCER" >/tmp/khnc-enforce.last 2>&1; then
+        json_response '{"ok":true,"enforced":true}'
+      else
+        MSG="$(tail -n 1 /tmp/khnc-enforce.last 2>/dev/null | sed 's/["\\]/ /g')"
+        json_response "{\"ok\":true,\"enforced\":false,\"error\":\"${MSG:-방화벽 적용 실패}\"}"
+      fi
+    else
+      json_response '{"ok":true,"enforced":false,"error":"khnc-enforce가 설치되지 않았습니다."}'
+    fi
+    ;;
+  *) json_response '{"ok":false,"error":"지원하지 않는 요청 방식입니다."}' ;;
+esac

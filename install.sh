@@ -39,6 +39,18 @@ if [ -r "$SOURCE_DIR/openwrt/khnc-maintenance-worker" ]; then
   chmod 755 /usr/libexec/khnc-maintenance-worker
 fi
 
+if [ -r "$SOURCE_DIR/khnc-enforce" ]; then
+  cp "$SOURCE_DIR/khnc-enforce" /usr/sbin/khnc-enforce
+  chmod 755 /usr/sbin/khnc-enforce
+fi
+
+if [ -r "$SOURCE_DIR/openwrt/khnc-parental.init" ]; then
+  cp "$SOURCE_DIR/openwrt/khnc-parental.init" /etc/init.d/khnc-parental
+  chmod 755 /etc/init.d/khnc-parental
+  /etc/init.d/khnc-parental enable
+  /etc/init.d/khnc-parental restart
+fi
+
 if [ ! -r /etc/khnc/maintenance.conf ]; then
   umask 077
   cat > /etc/khnc/maintenance.conf <<'EOF'
