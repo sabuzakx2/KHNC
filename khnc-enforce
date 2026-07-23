@@ -61,8 +61,9 @@ if [ -s "$POLICY_FILE" ]; then
   if json_load_file "$POLICY_FILE" 2>/dev/null; then
     json_select policies 2>/dev/null || true
     json_get_keys ITEMS
+    POLICY_INDEX=0
     for ITEM in $ITEMS; do
-      json_select "$ITEM" || continue
+      json_select "$ITEM" || { POLICY_INDEX=$((POLICY_INDEX + 1)); continue; }
       json_get_var MAC mac; json_get_var ENABLED scheduleEnabled; json_get_var OVERRIDE override
       json_get_var BONUS_DATE bonusDate; json_get_var BONUS_MIN bonusMinutes; json_get_var UNLIMITED_DATE unlimitedDate
       SHOULD_BLOCK=0; WINDOW_BLOCKED=0; PERIOD="weekday"; [ "$DAY_NUM" -ge 6 ] && PERIOD="weekend"
@@ -80,6 +81,12 @@ if [ -s "$POLICY_FILE" ]; then
               json_get_var START start; json_get_var END end; json_get_var LIMIT limitMinutes
               json_select .. 2>/dev/null; json_select .. 2>/dev/null
             fi
+            # Some OpenWrt jshn builds incorrectly expose an allDay JSON
+            # boolean as 0. Read that one field from the source JSON as the
+            # authoritative value; otherwise a 24-hour allow policy is
+            # wrongly treated as its disabled start/end time range.
+            ALL_DAY_RAW="$(jsonfilter -i "$POLICY_FILE" -e "@.policies[$POLICY_INDEX].periods.$PERIOD.allDay" 2>/dev/null)"
+            case "$ALL_DAY_RAW" in true|1) ALL_DAY=1;; false|0) ALL_DAY=0;; esac
             # A missing or disabled period must stay blocked, never fall
             # through with stale values from a different device policy.
             if [ "$PERIOD_SELECTED" -ne 1 ] || ! bool_true "$PERIOD_ENABLED"; then
@@ -114,6 +121,7 @@ if [ -s "$POLICY_FILE" ]; then
       esac
       if valid_mac "$MAC" && [ "$SHOULD_BLOCK" -eq 1 ]; then BLOCKED="$BLOCKED $(printf '%s' "$MAC" | tr 'A-F' 'a-f')"; fi
       json_select ..
+      POLICY_INDEX=$((POLICY_INDEX + 1))
     done
   fi
 fi
