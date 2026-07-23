@@ -32,6 +32,10 @@ case "${REQUEST_METHOD:-GET}" in
       rm -f "$TMP"; json_response '{"ok":false,"error":"정책 JSON 형식이 올바르지 않습니다."}'; exit 1
     fi
     chmod 600 "$TMP"; mv "$TMP" "$POLICY_FILE"
+    # A policy edit starts a new usage session.  Previous versions retained a
+    # bare start timestamp, causing a newly edited two-hour policy to display
+    # usage such as 23 hours from the former all-day policy.
+    rm -f "$DATA_DIR/runtime/$(date +%F)"/* 2>/dev/null || true
     if [ -x "$ENFORCER" ]; then
       if "$ENFORCER" >/tmp/khnc-enforce.last 2>&1; then
         json_response '{"ok":true,"enforced":true}'

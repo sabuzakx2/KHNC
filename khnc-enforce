@@ -62,9 +62,11 @@ if [ -s "$POLICY_FILE" ]; then
       json_select "$ITEM" || continue
       json_get_var MAC mac; json_get_var ENABLED scheduleEnabled; json_get_var OVERRIDE override
       json_get_var BONUS_DATE bonusDate; json_get_var BONUS_MIN bonusMinutes; json_get_var UNLIMITED_DATE unlimitedDate
-      SHOULD_BLOCK=0; PERIOD="weekday"; [ "$DAY_NUM" -ge 6 ] && PERIOD="weekend"
+      SHOULD_BLOCK=0; WINDOW_BLOCKED=0; PERIOD="weekday"; [ "$DAY_NUM" -ge 6 ] && PERIOD="weekend"
+      SAFE_MAC="$(printf '%s' "$MAC" | tr 'A-F:' 'a-f_')"
+      STATE_FILE="$STATE_DIR/$TODAY/$SAFE_MAC"
       case "$OVERRIDE" in
-        block) SHOULD_BLOCK=1 ;;
+        block) SHOULD_BLOCK=1; WINDOW_BLOCKED=1 ;;
         allow) SHOULD_BLOCK=0 ;;
         *)
           if bool_true "$ENABLED"; then
@@ -78,21 +80,28 @@ if [ -s "$POLICY_FILE" ]; then
             # A missing or disabled period must stay blocked, never fall
             # through with stale values from a different device policy.
             if [ "$PERIOD_SELECTED" -ne 1 ] || ! bool_true "$PERIOD_ENABLED"; then
-              SHOULD_BLOCK=1
+              SHOULD_BLOCK=1; WINDOW_BLOCKED=1
             else
               [ "$MODE" = "block" ] || MODE="allow"
               if bool_true "$ALL_DAY"; then
-                [ "$MODE" = "block" ] && SHOULD_BLOCK=1 || SHOULD_BLOCK=0
+                if [ "$MODE" = "block" ]; then SHOULD_BLOCK=1; WINDOW_BLOCKED=1; else SHOULD_BLOCK=0; fi
               else
                 START_MIN="$(to_minutes "${START:-00:00}")"; END_MIN="$(to_minutes "${END:-23:59}")"
-                if [ "$MODE" = "block" ]; then in_window "$START_MIN" "$END_MIN" "$NOW_MIN" && SHOULD_BLOCK=1 || SHOULD_BLOCK=0
-                else in_window "$START_MIN" "$END_MIN" "$NOW_MIN" || SHOULD_BLOCK=1; fi
+                if [ "$MODE" = "block" ]; then
+                  if in_window "$START_MIN" "$END_MIN" "$NOW_MIN"; then SHOULD_BLOCK=1; WINDOW_BLOCKED=1; else SHOULD_BLOCK=0; fi
+                elif ! in_window "$START_MIN" "$END_MIN" "$NOW_MIN"; then
+                  SHOULD_BLOCK=1; WINDOW_BLOCKED=1
+                fi
               fi
             fi
+            # A scheduled block ends the continuous-use session.  Without
+            # this reset an earlier all-day session can incorrectly appear as
+            # 20+ hours after the user changes to a time window.
+            [ "$WINDOW_BLOCKED" -eq 1 ] && rm -f "$STATE_FILE"
             if [ "$SHOULD_BLOCK" -eq 0 ] && [ "$UNLIMITED_DATE" != "$TODAY" ]; then
               case "$LIMIT" in ''|*[!0-9]*) LIMIT=0;; esac; case "$BONUS_MIN" in ''|*[!0-9]*) BONUS_MIN=0;; esac
               [ "$BONUS_DATE" = "$TODAY" ] || BONUS_MIN=0
-              TOTAL_LIMIT=$((LIMIT + BONUS_MIN)); SAFE_MAC="$(printf '%s' "$MAC" | tr 'A-F:' 'a-f_')"; STATE_FILE="$STATE_DIR/$TODAY/$SAFE_MAC"
+              TOTAL_LIMIT=$((LIMIT + BONUS_MIN))
               START_EPOCH=""; [ -s "$STATE_FILE" ] && START_EPOCH="$(cat "$STATE_FILE" 2>/dev/null)"
               if [ -z "$START_EPOCH" ] && device_seen "$MAC"; then START_EPOCH="$NOW_EPOCH"; printf '%s\n' "$START_EPOCH" > "$STATE_FILE"; fi
               if [ -n "$START_EPOCH" ] && [ "$TOTAL_LIMIT" -gt 0 ]; then USED=$(( (NOW_EPOCH - START_EPOCH) / 60 )); [ "$USED" -lt "$TOTAL_LIMIT" ] || SHOULD_BLOCK=1; fi

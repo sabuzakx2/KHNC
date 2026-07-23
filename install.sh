@@ -42,6 +42,12 @@ fi
 if [ -r "$SOURCE_DIR/khnc-enforce" ]; then
   cp "$SOURCE_DIR/khnc-enforce" /usr/sbin/khnc-enforce
   chmod 755 /usr/sbin/khnc-enforce
+  # One-time migration: pre-v0.11.0.9 stored a start timestamp indefinitely.
+  # Reset only today's ephemeral usage counters, never saved policies.
+  if [ ! -e /etc/khnc/.parental-runtime-v2 ]; then
+    rm -f "/etc/khnc/runtime/$(date +%F)"/* 2>/dev/null || true
+    touch /etc/khnc/.parental-runtime-v2
+  fi
 fi
 
 if [ -r "$SOURCE_DIR/openwrt/khnc-parental.init" ]; then
