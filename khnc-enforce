@@ -29,8 +29,11 @@ in_window() {
   # A time input cannot express 24:00.  Treat equal start/end values as a
   # complete day so 00:00~00:00 never accidentally blocks all internet.
   [ "$start" -eq "$end" ] && return 0
-  if [ "$start" -lt "$end" ]; then [ "$now" -ge "$start" ] && [ "$now" -lt "$end"
-  else [ "$now" -ge "$start" ] || [ "$now" -lt "$end"; fi
+  if [ "$start" -lt "$end" ]; then
+    [ "$now" -ge "$start" ] && [ "$now" -lt "$end" ]
+  else
+    [ "$now" -ge "$start" ] || [ "$now" -lt "$end" ]
+  fi
 }
 device_seen() {
   mac="$(printf '%s' "$1" | tr 'A-F' 'a-f')"
