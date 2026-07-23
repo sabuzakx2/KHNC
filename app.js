@@ -1445,7 +1445,7 @@ setInterval(load, NETWORK_REFRESH_INTERVAL_MS);
 
 /* KHNC version information */
 let KHNC_VERSION = "0.11.0 Stable";
-let KHNC_BUILD = "20260723.04";
+let KHNC_BUILD = "20260723.05";
 
 async function loadVersionInfo() {
   try {
@@ -1453,7 +1453,7 @@ async function loadVersionInfo() {
     if (!r.ok) return;
     const v = await r.json();
     KHNC_VERSION = `${v.version || "0.11.0"}${v.channel ? ` ${v.channel}` : ""}`;
-    KHNC_BUILD = v.build || "20260723.04";
+    KHNC_BUILD = v.build || "20260723.05";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
   const buildEl = document.querySelector("#khncBuildText");
@@ -1674,20 +1674,25 @@ normalize = function(raw){
 /* Live Home Infrastructure status - Build 20260718.03 */
 async function refreshInfrastructureStatus(){
   try{
-    const r=await fetch('/cgi-bin/khnc-infra-api',{cache:'no-store'});
+    const r=await fetch(`/cgi-bin/khnc-infra-api?_=${Date.now()}`,{cache:'no-store'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const data=await r.json();
     if(Array.isArray(data.equipment)) infraConfig.equipment=data.equipment;
     if(Array.isArray(data.services)) infraConfig.services=data.services;
     if(data.tailscale&&typeof data.tailscale==="object") tailscaleStatus=data.tailscale;
-    localStorage.setItem('khnc-infra',JSON.stringify(infraConfig));
-    scheduleStateSave();
     renderStableDashboard();
     renderHomeStatus();
-  }catch(e){ console.warn('KHNC infra status:',e.message); }
+  }catch(e){
+    // Do not leave an old "Running" indicator on screen when the live check fails.
+    tailscaleStatus={installed:false,running:false,connected:false,backendState:"Status check failed",ip:"",peers:0,warning:"Status check failed"};
+    const adguard=(infraConfig.services||[]).find(item=>item.id==="adguard");
+    if(adguard) Object.assign(adguard,{online:false,serviceRunning:false,dnsRunning:false,serviceStatus:"Stopped",dnsStatus:"DNS Stopped"});
+    renderStableDashboard();
+    console.warn('KHNC infra status:',e.message);
+  }
 }
 refreshInfrastructureStatus();
-setInterval(refreshInfrastructureStatus,60000);
+setInterval(refreshInfrastructureStatus,15000);
 
 /* KHNC v0.11 Maintenance */
 const MAINTENANCE_API = "/cgi-bin/khnc-maintenance-api";
