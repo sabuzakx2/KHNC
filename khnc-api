@@ -71,6 +71,38 @@ for OBJ in $(ubus list 2>/dev/null | grep '^hostapd\.'); do
  printf ']}'
 done
 
+# Some configurations expose only the primary SSID through hostapd's ubus
+# objects. Query every active wireless interface as a second source so clients
+# on guest/additional SSIDs are still identified as Wi-Fi, not as LAN entries
+# from the bridge neighbor table. Duplicate clients are harmless: the UI
+# indexes them by MAC and Wi-Fi always takes precedence over wired evidence.
+if command -v iwinfo >/dev/null 2>&1; then
+ ubus call network.wireless status 2>/dev/null |
+ jsonfilter -e '@.*.interfaces[*].ifname' 2>/dev/null |
+ sort -u |
+ while IFS= read -r IFACE; do
+  [ -n "$IFACE" ] || continue
+  CLIENTS="$(iwinfo "$IFACE" assoclist 2>/dev/null)"
+  CLIENT_MACS="$(printf '%s\n' "$CLIENTS" | sed -n 's/^[[:space:]]*\([0-9A-Fa-f:]\{17\}\).*/\1/p')"
+  [ -n "$CLIENT_MACS" ] || continue
+  INFO="$(iwinfo "$IFACE" info 2>/dev/null)"
+  SSID="$(printf '%s\n' "$INFO" | sed -n 's/.*ESSID: "\(.*\)"/\1/p' | head -n 1)"
+  FREQ="$(printf '%s\n' "$INFO" | sed -n 's/.*Frequency: \([0-9.]*\) GHz.*/\1/p' | head -n 1)"
+  case "$FREQ" in 2.*) BAND='2.4 GHz';;5.*) BAND='5 GHz';;6.*) BAND='6 GHz';;*) BAND='';;esac
+  [ "$FIRST_RADIO" -eq 1 ] || printf ','; FIRST_RADIO=0
+  printf '{"interface":"%s","ssid":"%s","band":"%s","clients":[' "$(json_escape "$IFACE")" "$(json_escape "$SSID")" "$(json_escape "$BAND")"
+  FIRST_CLIENT=1
+  for MAC in $CLIENT_MACS; do
+   MAC="$(printf '%s' "$MAC" | tr A-F a-f)"; printf '%s\n' "$MAC" >> "$WIFI_TMP"
+   SIGNAL="$(printf '%s\n' "$CLIENTS" | sed -n "/^[[:space:]]*$MAC[[:space:]]/s/.* \(-\{0,1\}[0-9][0-9]*\) dBm.*/\1/p" | head -n 1)"
+   [ -n "$SIGNAL" ] || SIGNAL=-100
+   [ "$FIRST_CLIENT" -eq 1 ] || printf ','; FIRST_CLIENT=0
+   printf '{"mac":"%s","signal":%s}' "$(json_escape "$MAC")" "$SIGNAL"
+  done
+  printf ']}'
+ done
+fi
+
 # Quiet wired devices such as printers and network tuners may not generate
 # traffic for long periods. Probe all known LAN IPv4 addresses in parallel so
 # the kernel refreshes its ARP/neighbor state before wired detection. ICMP
