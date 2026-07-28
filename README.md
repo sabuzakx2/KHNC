@@ -2,6 +2,8 @@
 
 KHNC runs as a standalone OpenWrt service on port `8881`. LuCI remains on its existing port and document root.
 
+The dedicated mobile interface runs on port `8882` and shares the same device and parental-policy data.
+
 The System page includes an on-demand nearby Wi-Fi analyzer. It uses OpenWrt `iwinfo` scan data to show SSID, band, channel, signal strength, and suggested 2.4/5 GHz channels. Install the `iwinfo` package if the router image does not already provide it.
 
 ## Install
@@ -17,12 +19,15 @@ Open KHNC at:
 
 ```text
 http://<router-ip>:8881
+
+Mobile: `http://<router-ip>:8882`
 ```
 
 The installer:
 
 - installs the web root under `/usr/share/khnc/www`;
 - starts a dedicated procd-managed uHTTPd instance on port `8881`;
+- starts a separate mobile uHTTPd instance on port `8882`;
 - copies existing `/www/cgi-bin/khnc-*` scripts into the standalone service to preserve installed features;
 - moves the old `/www/khnc` directory outside the LuCI web root after health verification;
 - does not modify the LuCI uHTTPd configuration.
