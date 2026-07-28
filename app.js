@@ -1453,7 +1453,7 @@ async function loadVersionInfo() {
     if (!r.ok) return;
     const v = await r.json();
     KHNC_VERSION = `${v.version || "0.11.0"}${v.channel ? ` ${v.channel}` : ""}`;
-    KHNC_BUILD = v.build || "20260728.01";
+    KHNC_BUILD = v.build || "20260728.02";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
   const buildEl = document.querySelector("#khncBuildText");
@@ -1622,11 +1622,20 @@ async function restoreDbFile(file){
 const previousRender=render;
 render=function(){previousRender();renderStableDashboard();renderSystemPage();};
 const previousSetView=setView;
-setView=function(view){previousSetView(view);if(view==="system")renderSystemPage();document.querySelector(".shell aside")?.classList.remove("open");$("#mobileBackdrop")?.classList.remove("show");};
+setView=function(view){previousSetView(view);if(view==="system")renderSystemPage();setMobileMenu(false)};
 
 
-$("#mobileMenuButton").onclick=()=>{document.querySelector(".shell aside")?.classList.toggle("open");$("#mobileBackdrop")?.classList.toggle("show")};
-$("#mobileBackdrop").onclick=()=>{$("#mobileBackdrop").classList.remove("show");document.querySelector(".shell aside")?.classList.remove("open")};
+function setMobileMenu(open) {
+  const aside = document.querySelector(".shell aside");
+  const button = $("#mobileMenuButton");
+  aside?.classList.toggle("open", open);
+  $("#mobileBackdrop")?.classList.toggle("show", open);
+  document.body.classList.toggle("mobile-menu-open", open);
+  button?.setAttribute("aria-expanded", String(open));
+  if (button) button.setAttribute("aria-label", open ? "메뉴 닫기" : "메뉴 열기");
+}
+$("#mobileMenuButton").onclick=()=>setMobileMenu(!document.querySelector(".shell aside")?.classList.contains("open"));
+$("#mobileBackdrop").onclick=()=>setMobileMenu(false);
 $("#backupDb").onclick=backupDb;
 $("#restoreDb").onchange=async e=>{try{if(e.target.files[0])await restoreDbFile(e.target.files[0]);}catch(err){alert(`복원 실패: ${err.message}`)}};
 $("#scanNearbyWifi").onclick=scanNearbyWifi;
