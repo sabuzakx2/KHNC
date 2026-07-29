@@ -7,7 +7,7 @@
   ],
   "services": [
     {"id":"ha","name":"Home Assistant","host":"J1900","ip":"","port":8123},
-    {"id":"adguard","name":"AdGuard Home","host":"OpenWrt","ip":"192.168.1.1","port":3001},
+    {"id":"adguard","name":"AdGuard Home","host":"Raspberry Pi","ip":"192.168.1.106","port":3000},
     {"id":"tvh","name":"TVHeadend","host":"NAS","ip":"192.168.1.10","port":9981},
     {"id":"ollama","name":"Ollama","host":"Mac","ip":"","port":11434},
     {"id":"n8n","name":"n8n","host":"NAS","ip":"192.168.1.10","port":5678},

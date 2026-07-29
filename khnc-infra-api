@@ -93,23 +93,22 @@ for ID in ha adguard tvh ollama n8n mqtt; do
   IP="$(jsonfilter -i "$CFG" -e "@.services[@.id='$ID'].ip" 2>/dev/null)"
   PORT="$(jsonfilter -i "$CFG" -e "@.services[@.id='$ID'].port" 2>/dev/null)"
   [ -n "$NAME" ] || continue
-  if [ "$ID" = "adguard" ]; then
-    IP="$(router_lan_ip)"
-    # This installation exposes the AdGuard Home administration UI on 3001.
-    # Do not let an older persisted infra.json switch the card back to 3000.
-    PORT=3001
-  fi
   T0="$(date +%s%3N 2>/dev/null)"
   check_port "$IP" "$PORT"; OK=$?
-  if [ "$ID" = "adguard" ] && [ "$OK" -ne 0 ]; then
+  if [ "$ID" = "adguard" ] && [ "$IP" = "$(router_lan_ip)" ] && [ "$OK" -ne 0 ]; then
     check_port 127.0.0.1 "$PORT"; OK=$?
   fi
   T1="$(date +%s%3N 2>/dev/null)"
   case "$T0$T1" in *N*) MS=0;; *) MS=$((T1-T0));; esac
   if [ "$ID" = "adguard" ]; then
-    check_adguard_process; ADGUARD_RUNNING=$?
-    check_adguard_dns; DNS_RUNNING=$?
-    check_listener 53; PORT53_RUNNING=$?
+    if [ "$IP" = "$(router_lan_ip)" ]; then
+      check_adguard_process; ADGUARD_RUNNING=$?
+      check_adguard_dns; DNS_RUNNING=$?
+      check_listener 53; PORT53_RUNNING=$?
+    else
+      [ "$OK" -eq 0 ] && ADGUARD_RUNNING=0 || ADGUARD_RUNNING=1
+      DNS_RUNNING=1; PORT53_RUNNING=1
+    fi
     if [ "$DNS_RUNNING" -eq 0 ]; then DNS_STATUS='AdGuard DNS 작동 중'
     elif [ "$PORT53_RUNNING" -eq 0 ]; then DNS_STATUS='53번 포트 확인 필요'
     else DNS_STATUS='DNS 중지'

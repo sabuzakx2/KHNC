@@ -5,6 +5,7 @@ const TRAFFIC_API = "/cgi-bin/khnc-traffic-api";
 const POLICY_API = "/cgi-bin/khnc-policy-api";
 const PARENTAL_STATUS_API = "/cgi-bin/khnc-parental-status";
 const STATE_API = "/cgi-bin/khnc-state-api";
+const PI_STATUS_API = "/cgi-bin/khnc-pi-status-cache-api";
 const baseGroups = ["전체", "즐겨찾기", "부모모드", "등록안됨"];
 const defaultOwners = ["공용", "아빠", "엄마", "하유", "온유", "신유"];
 const defaultLocations = ["안방", "온유방", "하신방", "거실", "주방", "화장실", "세탁실", "베란다"];
@@ -1451,7 +1452,7 @@ setInterval(load, NETWORK_REFRESH_INTERVAL_MS);
 
 /* KHNC version information */
 let KHNC_VERSION = "0.11.0 Stable";
-let KHNC_BUILD = "20260723.05";
+let KHNC_BUILD = "20260729.02";
 
 async function loadVersionInfo() {
   try {
@@ -1459,7 +1460,7 @@ async function loadVersionInfo() {
     if (!r.ok) return;
     const v = await r.json();
     KHNC_VERSION = `${v.version || "0.11.0"}${v.channel ? ` ${v.channel}` : ""}`;
-    KHNC_BUILD = v.build || "20260729.01";
+    KHNC_BUILD = v.build || "20260729.02";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
   const buildEl = document.querySelector("#khncBuildText");
@@ -1476,7 +1477,7 @@ const INFRA_DEFAULT = {
   ],
   services: [
     {id:"ha",name:"Home Assistant",host:"J1900",ip:"",port:"8123",online:false},
-    {id:"adguard",name:"AdGuard Home",host:"OpenWrt",ip:"192.168.1.1",port:"3001",online:false},
+    {id:"adguard",name:"AdGuard Home",host:"Raspberry Pi",ip:"192.168.1.106",port:"3000",online:false},
     {id:"tvh",name:"TVHeadend",host:"NAS",ip:"192.168.1.10",port:"9981",online:false},
     {id:"ollama",name:"Ollama",host:"Mac",ip:"",port:"11434",online:false},
     {id:"n8n",name:"n8n",host:"NAS",ip:"192.168.1.10",port:"5678",online:false},
@@ -1686,6 +1687,25 @@ normalize = function(raw){
 };
 
 
+function applyPiHostedStatus(data) {
+  if (!data || typeof data !== "object") return;
+  if (data.available === false) return;
+  const adguard = (infraConfig.services || []).find(item => item.id === "adguard");
+  const piAdguard = data.adguard;
+  if (adguard && piAdguard && typeof piAdguard === "object") {
+    const ip = piAdguard.host || piAdguard.ip || adguard.ip;
+    Object.assign(adguard, {
+      host: "Raspberry Pi", ip, port: String(piAdguard.port || 3000),
+      url: piAdguard.url || `http://${ip}:3000`, online: !!piAdguard.online,
+      serviceRunning: !!piAdguard.serviceRunning, dnsRunning: !!piAdguard.dnsRunning,
+      adminReachable: !!piAdguard.adminReachable,
+      serviceStatus: piAdguard.serviceRunning ? "Running" : "Stopped",
+      dnsStatus: piAdguard.dnsRunning ? "AdGuard Running" : "DNS Stopped"
+    });
+  }
+  if (data.tailscale && typeof data.tailscale === "object") tailscaleStatus = data.tailscale;
+}
+
 /* Live Home Infrastructure status - Build 20260718.03 */
 async function refreshInfrastructureStatus(){
   try{
@@ -1695,6 +1715,10 @@ async function refreshInfrastructureStatus(){
     if(Array.isArray(data.equipment)) infraConfig.equipment=data.equipment;
     if(Array.isArray(data.services)) infraConfig.services=data.services;
     if(data.tailscale&&typeof data.tailscale==="object") tailscaleStatus=data.tailscale;
+    try {
+      const piResponse = await fetch(`${PI_STATUS_API}?_=${Date.now()}`, { cache: "no-store" });
+      if (piResponse.ok) applyPiHostedStatus(await piResponse.json());
+    } catch (_) {}
     renderStableDashboard();
     renderHomeStatus();
   }catch(e){

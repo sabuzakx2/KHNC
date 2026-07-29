@@ -50,6 +50,10 @@ for API in "$SOURCE_DIR"/khnc-*; do
   cp "$API" "$CGI_ROOT/$(basename "$API")"
 done
 chmod 755 "$CGI_ROOT"/khnc-* 2>/dev/null || true
+# Refresh the mobile CGI copy after the bundled APIs have been installed.
+# This keeps both ports on the same current status endpoints.
+cp "$CGI_ROOT"/khnc-* "$MOBILE_ROOT/cgi-bin/" 2>/dev/null || true
+chmod 755 "$MOBILE_ROOT/cgi-bin"/khnc-* 2>/dev/null || true
 
 if [ -r "$SOURCE_DIR/openwrt/khnc-maintenance-worker" ]; then
   cp "$SOURCE_DIR/openwrt/khnc-maintenance-worker" /usr/libexec/khnc-maintenance-worker
