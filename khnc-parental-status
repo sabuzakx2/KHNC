@@ -7,6 +7,8 @@ NOW="$(date +%s)"
 STATE_DIR="/etc/khnc/runtime/$TODAY"
 DAY_NUM="$(date +%u)"
 PERIOD="weekday"; [ "$DAY_NUM" -ge 6 ] && PERIOD="weekend"
+number() { case "$1" in ''|*[!0-9]*) echo 0;; *) echo "$1";; esac; }
+usage_value() { awk -F= -v key="$1" '$1==key {print $2; exit}' "$2" 2>/dev/null; }
 
 printf 'Content-Type: application/json\r\n'
 printf 'Cache-Control: no-store\r\n\r\n'
@@ -20,16 +22,20 @@ if [ -s "$POLICY_FILE" ]; then
     json_get_keys ITEMS
     for ITEM in $ITEMS; do
       json_select "$ITEM" || continue
-      json_get_var MAC mac; json_get_var BONUS_DATE bonusDate; json_get_var BONUS_MIN bonusMinutes; json_get_var UNLIMITED_DATE unlimitedDate
+      json_get_var MAC mac; json_get_var BONUS_DATE bonusDate; json_get_var BONUS_MIN bonusMinutes; json_get_var UNLIMITED_DATE unlimitedDate; json_get_var TRACKING usageTrackingEnabled
       SAFE_MAC="$(printf '%s' "$MAC" | tr 'A-F:' 'a-f_')"
-      START=0; [ -s "$STATE_DIR/$SAFE_MAC" ] && START="$(cat "$STATE_DIR/$SAFE_MAC" 2>/dev/null)"
-      case "$START" in ''|*[!0-9]*) START=0;; esac
-      USED=0; [ "$START" -gt 0 ] && USED=$(( (NOW - START) / 60 )); [ "$USED" -lt 0 ] && USED=0
+      USAGE_FILE="$STATE_DIR/usage_$SAFE_MAC"
+      USED_SECONDS="$(number "$(usage_value used_seconds "$USAGE_FILE")")"
+      USED=$((USED_SECONDS / 60))
+      LAST_ACTIVITY="$(number "$(usage_value last_activity "$USAGE_FILE")")"
+      LAST_BYTES="$(number "$(usage_value last_bytes "$USAGE_FILE")")"
+      ACTIVITY_STATE="$(usage_value activity_state "$USAGE_FILE")"; [ -n "$ACTIVITY_STATE" ] || ACTIVITY_STATE=paused
+      case "$TRACKING" in false|0) TRACKING=false;; *) TRACKING=true;; esac
       [ "$BONUS_DATE" = "$TODAY" ] || BONUS_MIN=0
       case "$BONUS_MIN" in ''|*[!0-9]*) BONUS_MIN=0;; esac
       UNLIMITED=false; [ "$UNLIMITED_DATE" = "$TODAY" ] && UNLIMITED=true
       [ "$FIRST" -eq 1 ] || printf ','; FIRST=0
-      printf '{"mac":"%s","period":"%s","startEpoch":%s,"usedMinutes":%s,"bonusMinutes":%s,"unlimited":%s}' "$MAC" "$PERIOD" "$START" "$USED" "$BONUS_MIN" "$UNLIMITED"
+      printf '{"mac":"%s","period":"%s","startEpoch":%s,"usedMinutes":%s,"bonusMinutes":%s,"unlimited":%s,"trackingEnabled":%s,"activityState":"%s","lastActivity":%s,"lastBytes":%s}' "$MAC" "$PERIOD" "$LAST_ACTIVITY" "$USED" "$BONUS_MIN" "$UNLIMITED" "$TRACKING" "$ACTIVITY_STATE" "$LAST_ACTIVITY" "$LAST_BYTES"
       json_select ..
     done
   fi

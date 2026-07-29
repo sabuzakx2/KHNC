@@ -2075,3 +2075,6 @@ main{
   .manage-dialog .schedule-card-v093 .period-time{gap:6px!important}
   .manage-dialog .schedule-card-v093 .period-time input{font-size:13px!important}
 }
+
+.management-toggles{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+@media(max-width:760px){.management-toggles{width:100%}.management-toggles .toggle-control{width:100%;justify-content:space-between}}

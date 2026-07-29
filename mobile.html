@@ -46,6 +46,7 @@
     <header><div><small>PARENT MODE</small><h2 id="policyTitle">Internet Schedule</h2></div><button type="button" id="closePolicy" class="close" aria-label="닫기">×</button></header>
     <input id="policyMac" type="hidden">
     <label class="switch-row"><span><b>Schedule</b><small>시간 정책을 적용합니다.</small></span><input id="scheduleEnabledMobile" type="checkbox"><i></i></label>
+    <label class="switch-row"><span><b>사용시간 추적</b><small>실제 전송량을 기준으로 사용시간을 계산합니다.</small></span><input id="usageTrackingMobile" type="checkbox"><i></i></label>
     <label class="field"><span>현재 상태</span><select id="overrideMobile"><option value="schedule">Schedule 적용</option><option value="allow">Always allow</option><option value="block">Block now</option></select></label>
     <div id="periodFields"></div>
     <button class="save" type="submit">Save Policy</button>
@@ -60,6 +61,6 @@
     <label class="switch-row"><span><b>Parent Mode</b><small>인터넷 시간 정책 관리 대상에 추가합니다.</small></span><input id="deviceParent" type="checkbox"><i></i></label>
     <button class="save" type="submit">기기 정보 저장</button>
   </form></dialog>
-  <script src="./mobile.js?v=0.11.0.3"></script>
+  <script src="./mobile.js?v=0.11.0.4"></script>
 </body>
 </html>

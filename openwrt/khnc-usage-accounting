@@ -1,0 +1,96 @@
+#!/bin/sh
+# Account parental-control time from real forwarded traffic, not link presence.
+# Invoked once a minute by khnc-enforce for each policy device.
+set -u
+
+MAC="$(printf '%s' "${1:-}" | tr 'A-F' 'a-f')"
+ENABLED="${2:-1}"
+TABLE="khnc_usage"
+CHAIN="forward"
+TODAY="$(date +%F)"
+NOW="$(date +%s)"
+STATE_DIR="/etc/khnc/runtime/$TODAY"
+SAFE_MAC="$(printf '%s' "$MAC" | tr 'A-F:' 'a-f_')"
+STATE_FILE="$STATE_DIR/usage_$SAFE_MAC"
+
+# Defaults intentionally favor meaningful active use without charging a child
+# for a quiet connected device or a short video-buffering interval.
+ACTIVITY_BYTES=1048576  # 1 MiB per minute
+BUFFER_GRACE=300        # count up to 5 minutes after real activity
+PAUSE_AFTER=600         # mark paused after 10 minutes without activity
+
+valid_mac() { case "$1" in [0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) return 0;; *) return 1;; esac; }
+bool_true() { [ "$1" = 1 ] || [ "$1" = true ]; }
+[ -x /usr/sbin/nft ] || exit 0
+valid_mac "$MAC" || exit 0
+mkdir -p "$STATE_DIR"
+
+ensure_chain() {
+  nft list table inet "$TABLE" >/dev/null 2>&1 || nft add table inet "$TABLE" >/dev/null 2>&1 || return 1
+  nft list chain inet "$TABLE" "$CHAIN" >/dev/null 2>&1 || \
+    nft "add chain inet $TABLE $CHAIN { type filter hook forward priority -15; policy accept; }" >/dev/null 2>&1 || return 1
+}
+
+counter_bytes() {
+  TAG="$1"
+  nft list chain inet "$TABLE" "$CHAIN" 2>/dev/null | awk -v tag="$TAG" '
+    index($0, "comment \"" tag "\"") {
+      for (i=1; i<=NF; i++) if ($i == "bytes") { sum += $(i+1); break }
+    }
+    END { print sum+0 }
+  '
+}
+
+ensure_counter() {
+  DIRECTION="$1"
+  TAG="khnc-usage-$SAFE_MAC-$DIRECTION"
+  nft list chain inet "$TABLE" "$CHAIN" 2>/dev/null | grep -Fq "comment \"$TAG\"" && return 0
+  if [ "$DIRECTION" = up ]; then
+    nft add rule inet "$TABLE" "$CHAIN" oifname != '"br-lan"' ether saddr "$MAC" counter comment "$TAG" >/dev/null 2>&1
+  else
+    nft add rule inet "$TABLE" "$CHAIN" iifname != '"br-lan"' ether daddr "$MAC" counter comment "$TAG" >/dev/null 2>&1
+  fi
+}
+
+read_value() { awk -F= -v key="$1" '$1==key {print $2; exit}' "$STATE_FILE" 2>/dev/null; }
+number() { case "$1" in ''|*[!0-9]*) echo 0;; *) echo "$1";; esac; }
+write_state() {
+  TMP="$STATE_FILE.$$"
+  printf 'last_up=%s\nlast_down=%s\nused_seconds=%s\nlast_activity=%s\nlast_bytes=%s\nactivity_state=%s\n' \
+    "$LAST_UP" "$LAST_DOWN" "$USED_SECONDS" "$LAST_ACTIVITY" "$LAST_BYTES" "$ACTIVITY_STATE" > "$TMP"
+  mv "$TMP" "$STATE_FILE"
+}
+
+ensure_chain || exit 0
+ensure_counter up || exit 0
+ensure_counter down || exit 0
+CURRENT_UP="$(number "$(counter_bytes "khnc-usage-$SAFE_MAC-up")")"
+CURRENT_DOWN="$(number "$(counter_bytes "khnc-usage-$SAFE_MAC-down")")"
+LAST_UP="$(number "$(read_value last_up)")"
+LAST_DOWN="$(number "$(read_value last_down)")"
+USED_SECONDS="$(number "$(read_value used_seconds)")"
+LAST_ACTIVITY="$(number "$(read_value last_activity)")"
+
+# Counters can reset after a firewall reload. Treat that sample as a baseline.
+DELTA_UP=0; DELTA_DOWN=0
+[ "$CURRENT_UP" -ge "$LAST_UP" ] && DELTA_UP=$((CURRENT_UP - LAST_UP))
+[ "$CURRENT_DOWN" -ge "$LAST_DOWN" ] && DELTA_DOWN=$((CURRENT_DOWN - LAST_DOWN))
+LAST_UP="$CURRENT_UP"; LAST_DOWN="$CURRENT_DOWN"
+LAST_BYTES=$((DELTA_UP + DELTA_DOWN))
+
+if ! bool_true "$ENABLED"; then
+  USED_SECONDS=0; LAST_ACTIVITY=0; ACTIVITY_STATE=off
+  write_state
+  exit 0
+fi
+
+if [ "$LAST_BYTES" -ge "$ACTIVITY_BYTES" ]; then
+  LAST_ACTIVITY="$NOW"; USED_SECONDS=$((USED_SECONDS + 60)); ACTIVITY_STATE=active
+elif [ "$LAST_ACTIVITY" -gt 0 ] && [ $((NOW - LAST_ACTIVITY)) -le "$BUFFER_GRACE" ]; then
+  USED_SECONDS=$((USED_SECONDS + 60)); ACTIVITY_STATE=buffering
+elif [ "$LAST_ACTIVITY" -gt 0 ] && [ $((NOW - LAST_ACTIVITY)) -le "$PAUSE_AFTER" ]; then
+  ACTIVITY_STATE=idle
+else
+  ACTIVITY_STATE=paused
+fi
+write_state

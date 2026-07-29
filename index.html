@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>KHNC</title>
-  <link rel="stylesheet" href="./styles.css?v=0.11.0.13">
+  <link rel="stylesheet" href="./styles.css?v=0.11.0.14">
 </head>
 <body>
 <button id="mobileMenuButton" class="mobile-menu-button" aria-label="메뉴 열기" aria-expanded="false">☰</button>
@@ -253,7 +253,7 @@
     <section id="internet" class="management-section priority-section manage-anchor">
       <div class="management-heading">
         <div><h4>인터넷 접속 시간 관리</h4><p>평일과 주말별로 허용시간 또는 차단시간과 연속 사용시간을 설정합니다.</p></div>
-        <label class="toggle-control"><span>스케줄 사용</span><input id="scheduleEnabled" type="checkbox"><i></i></label>
+        <div class="management-toggles"><label class="toggle-control"><span>스케줄 사용</span><input id="scheduleEnabled" type="checkbox"><i></i></label><label class="toggle-control"><span>사용시간 추적</span><input id="usageTrackingEnabled" type="checkbox"><i></i></label></div>
       </div>
 
       <div class="internet-layout">
@@ -319,6 +319,6 @@
   </form>
 </dialog>
 
-<script src="./app.js?v=0.11.0.13"></script>
+<script src="./app.js?v=0.11.0.14"></script>
 </body>
 </html>

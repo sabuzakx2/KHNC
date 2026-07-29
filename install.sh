@@ -67,6 +67,11 @@ if [ -r "$SOURCE_DIR/khnc-enforce" ]; then
   fi
 fi
 
+if [ -r "$SOURCE_DIR/openwrt/khnc-usage-accounting" ]; then
+  cp "$SOURCE_DIR/openwrt/khnc-usage-accounting" /usr/sbin/khnc-usage-accounting
+  chmod 755 /usr/sbin/khnc-usage-accounting
+fi
+
 if [ -r "$SOURCE_DIR/openwrt/khnc-parental.init" ]; then
   cp "$SOURCE_DIR/openwrt/khnc-parental.init" /etc/init.d/khnc-parental
   chmod 755 /etc/init.d/khnc-parental

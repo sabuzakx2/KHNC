@@ -807,6 +807,7 @@ const periodDefs = [
 function defaultPolicy() {
   return {
     scheduleEnabled: false,
+    usageTrackingEnabled: true,
     override: "schedule",
     periods: {
       weekday: { enabled: true, mode: "allow", allDay: false, start: "10:00", end: "22:00", limitMinutes: 180 },
@@ -955,7 +956,8 @@ function updateBonusPanel(mac) {
   const base = Number(p.periods?.[currentPeriod]?.limitMinutes || 0);
   const total = base + bonus;
   const usage = $("#todayUsage");
-  if (usage) usage.textContent = unlimited ? `${formatMinutes(used)} 사용 · 오늘 제한 없음` : `${formatMinutes(used)} / ${formatMinutes(total)}`;
+  const activity = { active: "활동 중", buffering: "버퍼링 유예", idle: "무활동 감지", paused: "일시정지", off: "사용시간 추적 꺼짐" }[status.activityState] || "대기";
+  if (usage) usage.textContent = p.usageTrackingEnabled === false ? "사용시간 추적 꺼짐" : (unlimited ? `${formatMinutes(used)} 사용 · 오늘 제한 없음 · ${activity}` : `${formatMinutes(used)} / ${formatMinutes(total)} · ${activity}`);
   const bonusText = $("#todayBonus");
   if (bonusText) bonusText.textContent = unlimited ? "오늘 제한 없음" : bonus ? `추가 ${formatMinutes(bonus)}` : "추가시간 없음";
   const unlimitedButton = $("#bonusUnlimited");
@@ -1013,6 +1015,7 @@ function openManageDialog(d, anchor = "internet") {
   $("#manageOnlineBadge").textContent = d.online ? "온라인" : "오프라인";
   $("#manageOnlineBadge").className = `badge ${d.online ? "online" : "offline"}`;
   $("#scheduleEnabled").checked = !!policy.scheduleEnabled;
+  $("#usageTrackingEnabled").checked = policy.usageTrackingEnabled !== false;
   setOverride(policy.override || "schedule");
   renderScheduleRows(policy);
   fillManageInfo(d);
@@ -1046,6 +1049,7 @@ async function saveManagePolicy(e) {
   policies[mac] = {
     ...previous,
     scheduleEnabled: $("#scheduleEnabled").checked,
+    usageTrackingEnabled: $("#usageTrackingEnabled").checked,
     override,
     periods,
     updatedAt: Date.now()
@@ -1102,11 +1106,13 @@ function parentUsageSummary(d) {
   const status = parentalStatus[d.mac] || {};
   const p = normalizePolicy(policies[d.mac] || {});
   const today = todayKey();
-  if (p.unlimitedDate === today) return `${formatMinutes(status.usedMinutes || 0)} 사용 · 오늘 제한 없음`;
+  if (p.usageTrackingEnabled === false) return "사용시간 추적 꺼짐";
+  const activity = { active: "활동 중", buffering: "버퍼링 유예", idle: "무활동", paused: "일시정지" }[status.activityState] || "대기";
+  if (p.unlimitedDate === today) return `${formatMinutes(status.usedMinutes || 0)} 사용 · 오늘 제한 없음 · ${activity}`;
   const period = status.period || (new Date().getDay() === 0 || new Date().getDay() === 6 ? "weekend" : "weekday");
   const base = Number(p.periods?.[period]?.limitMinutes || 0);
   const bonus = p.bonusDate === today ? Number(p.bonusMinutes || 0) : 0;
-  return `오늘 ${formatMinutes(status.usedMinutes || 0)} / ${formatMinutes(base + bonus)}`;
+  return `오늘 ${formatMinutes(status.usedMinutes || 0)} / ${formatMinutes(base + bonus)} · ${activity}`;
 }
 
 async function renderParentMode() {
@@ -1453,7 +1459,7 @@ async function loadVersionInfo() {
     if (!r.ok) return;
     const v = await r.json();
     KHNC_VERSION = `${v.version || "0.11.0"}${v.channel ? ` ${v.channel}` : ""}`;
-    KHNC_BUILD = v.build || "20260728.05";
+    KHNC_BUILD = v.build || "20260729.01";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
   const buildEl = document.querySelector("#khncBuildText");

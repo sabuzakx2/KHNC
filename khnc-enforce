@@ -5,6 +5,7 @@
 
 POLICY_FILE="/etc/khnc/policies.json"
 STATE_DIR="/etc/khnc/runtime"
+USAGE_ACCOUNTING="/usr/sbin/khnc-usage-accounting"
 TABLE="khnc_parental"
 TODAY="$(date +%F)"
 NOW_EPOCH="$(date +%s)"
@@ -40,6 +41,10 @@ device_seen() {
   ip neigh show 2>/dev/null | tr 'A-F' 'a-f' | grep -Fq "$mac" && return 0
   bridge fdb show 2>/dev/null | tr 'A-F' 'a-f' | grep -Fq "$mac"
 }
+usage_minutes() {
+  FILE="$1"
+  awk -F= '$1=="used_seconds" {print int($2 / 60); found=1} END {if(!found) print 0}' "$FILE" 2>/dev/null
+}
 
 command -v nft >/dev/null 2>&1 || { echo "nft 명령이 없습니다."; exit 1; }
 mkdir -p "$STATE_DIR/$TODAY"
@@ -64,11 +69,19 @@ if [ -s "$POLICY_FILE" ]; then
     POLICY_INDEX=0
     for ITEM in $ITEMS; do
       json_select "$ITEM" || { POLICY_INDEX=$((POLICY_INDEX + 1)); continue; }
-      json_get_var MAC mac; json_get_var ENABLED scheduleEnabled; json_get_var OVERRIDE override
+      json_get_var MAC mac; json_get_var ENABLED scheduleEnabled; json_get_var OVERRIDE override; json_get_var USAGE_TRACKING usageTrackingEnabled
       json_get_var BONUS_DATE bonusDate; json_get_var BONUS_MIN bonusMinutes; json_get_var UNLIMITED_DATE unlimitedDate
       SHOULD_BLOCK=0; WINDOW_BLOCKED=0; PERIOD="weekday"; [ "$DAY_NUM" -ge 6 ] && PERIOD="weekend"
       SAFE_MAC="$(printf '%s' "$MAC" | tr 'A-F:' 'a-f_')"
       STATE_FILE="$STATE_DIR/$TODAY/$SAFE_MAC"
+      USAGE_FILE="$STATE_DIR/$TODAY/usage_$SAFE_MAC"
+      # Existing policies predate this setting. Keep their time limits enabled
+      # unless the user explicitly turns activity-based tracking off.
+      USAGE_TRACKING_RAW="$(jsonfilter -i "$POLICY_FILE" -e "@.policies[$POLICY_INDEX].usageTrackingEnabled" 2>/dev/null)"
+      case "$USAGE_TRACKING_RAW" in false|0) USAGE_TRACKING=0;; true|1) USAGE_TRACKING=1;; *) USAGE_TRACKING=1;; esac
+      if [ -x "$USAGE_ACCOUNTING" ]; then
+        "$USAGE_ACCOUNTING" "$MAC" "$USAGE_TRACKING" >/dev/null 2>&1 || true
+      fi
       case "$OVERRIDE" in
         block) SHOULD_BLOCK=1; WINDOW_BLOCKED=1 ;;
         allow) SHOULD_BLOCK=0 ;;
@@ -104,17 +117,17 @@ if [ -s "$POLICY_FILE" ]; then
                 fi
               fi
             fi
-            # A scheduled block ends the continuous-use session.  Without
-            # this reset an earlier all-day session can incorrectly appear as
-            # 20+ hours after the user changes to a time window.
+            # A scheduled block ends the legacy timestamp session. Usage is
+            # now recorded separately from real forwarded traffic.
             [ "$WINDOW_BLOCKED" -eq 1 ] && rm -f "$STATE_FILE"
             if [ "$SHOULD_BLOCK" -eq 0 ] && [ "$UNLIMITED_DATE" != "$TODAY" ]; then
               case "$LIMIT" in ''|*[!0-9]*) LIMIT=0;; esac; case "$BONUS_MIN" in ''|*[!0-9]*) BONUS_MIN=0;; esac
               [ "$BONUS_DATE" = "$TODAY" ] || BONUS_MIN=0
               TOTAL_LIMIT=$((LIMIT + BONUS_MIN))
-              START_EPOCH=""; [ -s "$STATE_FILE" ] && START_EPOCH="$(cat "$STATE_FILE" 2>/dev/null)"
-              if [ -z "$START_EPOCH" ] && device_seen "$MAC"; then START_EPOCH="$NOW_EPOCH"; printf '%s\n' "$START_EPOCH" > "$STATE_FILE"; fi
-              if [ -n "$START_EPOCH" ] && [ "$TOTAL_LIMIT" -gt 0 ]; then USED=$(( (NOW_EPOCH - START_EPOCH) / 60 )); [ "$USED" -lt "$TOTAL_LIMIT" ] || SHOULD_BLOCK=1; fi
+              if [ "$USAGE_TRACKING" -eq 1 ] && [ -x "$USAGE_ACCOUNTING" ]; then
+                USED="$(usage_minutes "$USAGE_FILE")"
+                if [ "$TOTAL_LIMIT" -gt 0 ] && [ "$USED" -ge "$TOTAL_LIMIT" ]; then SHOULD_BLOCK=1; fi
+              fi
             fi
           fi
           ;;
