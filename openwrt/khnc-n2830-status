@@ -1,0 +1,51 @@
+#!/bin/sh
+
+CONF=/etc/khnc/n2830.conf
+OUT=/tmp/khnc-n2830-status.json
+
+write_unavailable() {
+  printf '{"available":false,"adguard":{"online":false,"serviceRunning":false,"dnsRunning":false},"tailscale":{"installed":false,"running":false,"connected":false,"backendState":"Status check failed","ip":"","peers":0,"warning":"N2830 status unavailable"}}\n' > "$OUT"
+}
+
+[ -r "$CONF" ] || { write_unavailable; exit 0; }
+. "$CONF"
+
+: "${N2830_HOST:=192.168.1.106}"
+: "${N2830_USER:=kallos}"
+: "${N2830_PORT:=22}"
+: "${N2830_KEY:=/root/.ssh/khnc_n2830_key}"
+[ -r "$N2830_KEY" ] || { write_unavailable; exit 0; }
+
+RAW="$(timeout 8 ssh -i "$N2830_KEY" -p "$N2830_PORT" "$N2830_USER@$N2830_HOST" '
+  has_process() { pidof "$1" >/dev/null 2>&1 || ps w 2>/dev/null | grep -q "[$(printf "%s" "$1" | cut -c1)]$(printf "%s" "$1" | cut -c2-)"; }
+  if has_process AdGuardHome; then AG_SERVICE=true; else AG_SERVICE=false; fi
+  if (netstat -ln 2>/dev/null; ss -ln 2>/dev/null) | grep -q ":53[[:space:]]"; then AG_DNS=true; else AG_DNS=false; fi
+  TS_BIN=$(command -v tailscale 2>/dev/null)
+  if [ -n "$TS_BIN" ]; then TS_INSTALLED=true; else TS_INSTALLED=false; fi
+  if has_process tailscaled; then TS_DAEMON=true; else TS_DAEMON=false; fi
+  TS_RAW=""; [ -n "$TS_BIN" ] && TS_RAW=$($TS_BIN status --json 2>/dev/null)
+  TS_BACKEND=$(printf "%s" "$TS_RAW" | sed -n "s/.*\"BackendState\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1)
+  TS_IP=$(printf "%s" "$TS_RAW" | sed -n "s/.*\"TailscaleIPs\"[[:space:]]*:[[:space:]]*\[\"\([^\"]*\)\".*/\1/p" | head -n 1)
+  TS_PEERS=$(printf "%s" "$TS_RAW" | grep -o "\"Online\"[[:space:]]*:[[:space:]]*true" | wc -l | tr -d " ")
+  [ "$TS_DAEMON" = true ] && [ "$TS_BACKEND" = Running ] && TS_CONNECTED=true || TS_CONNECTED=false
+  printf "AG_SERVICE=%s\nAG_DNS=%s\nTS_INSTALLED=%s\nTS_DAEMON=%s\nTS_CONNECTED=%s\nTS_BACKEND=%s\nTS_IP=%s\nTS_PEERS=%s\n" "$AG_SERVICE" "$AG_DNS" "$TS_INSTALLED" "$TS_DAEMON" "$TS_CONNECTED" "${TS_BACKEND:-Stopped}" "$TS_IP" "${TS_PEERS:-0}"
+' 2>/dev/null)" || { write_unavailable; exit 0; }
+
+value() { printf '%s\n' "$RAW" | sed -n "s/^$1=//p" | head -n 1; }
+bool() { [ "$(value "$1")" = true ] && printf true || printf false; }
+
+AG_SERVICE="$(bool AG_SERVICE)"
+AG_DNS="$(bool AG_DNS)"
+TS_INSTALLED="$(bool TS_INSTALLED)"
+TS_DAEMON="$(bool TS_DAEMON)"
+TS_CONNECTED="$(bool TS_CONNECTED)"
+TS_BACKEND="$(value TS_BACKEND)"
+TS_IP="$(value TS_IP)"
+TS_PEERS="$(value TS_PEERS)"
+[ -n "$TS_PEERS" ] || TS_PEERS=0
+[ -n "$TS_BACKEND" ] || TS_BACKEND=Stopped
+
+printf '{"available":true,"adguard":{"host":"N2830","ip":"%s","port":3000,"online":%s,"serviceRunning":%s,"dnsRunning":%s,"adminReachable":%s},"tailscale":{"installed":%s,"daemonRunning":%s,"running":%s,"connected":%s,"backendState":"%s","ip":"%s","peers":%s,"warning":"%s"}}\n' \
+  "$N2830_HOST" "$AG_SERVICE" "$AG_SERVICE" "$AG_DNS" "$AG_SERVICE" \
+  "$TS_INSTALLED" "$TS_DAEMON" "$TS_CONNECTED" "$TS_CONNECTED" \
+  "$TS_BACKEND" "$TS_IP" "$TS_PEERS" "$( [ "$TS_CONNECTED" = true ] && printf 정상 || printf '연결 확인 필요' )" > "$OUT"

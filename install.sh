@@ -82,6 +82,28 @@ if [ -r "$SOURCE_DIR/openwrt/khnc-usage-accounting" ]; then
   chmod 755 /usr/sbin/khnc-usage-accounting
 fi
 
+if [ -r "$SOURCE_DIR/openwrt/khnc-n2830-status" ]; then
+  cp "$SOURCE_DIR/openwrt/khnc-n2830-status" /usr/sbin/khnc-n2830-status
+  chmod 755 /usr/sbin/khnc-n2830-status
+fi
+
+if [ ! -r /etc/khnc/n2830.conf ]; then
+  umask 077
+  cat > /etc/khnc/n2830.conf <<'EOF'
+N2830_HOST='192.168.1.106'
+N2830_USER='kallos'
+N2830_PORT='22'
+N2830_KEY='/root/.ssh/khnc_n2830_key'
+EOF
+fi
+
+if [ -r "$SOURCE_DIR/openwrt/khnc-n2830-status.init" ]; then
+  cp "$SOURCE_DIR/openwrt/khnc-n2830-status.init" /etc/init.d/khnc-n2830-status
+  chmod 755 /etc/init.d/khnc-n2830-status
+  /etc/init.d/khnc-n2830-status enable
+  /etc/init.d/khnc-n2830-status restart
+fi
+
 if [ -r "$SOURCE_DIR/openwrt/khnc-parental.init" ]; then
   cp "$SOURCE_DIR/openwrt/khnc-parental.init" /etc/init.d/khnc-parental
   chmod 755 /etc/init.d/khnc-parental
