@@ -631,9 +631,6 @@ function renderRouterOverview() {
   const storageUsage = s.mounted
     ? `${s.used_human || "-"} / ${s.total_human || "-"} · ${String(s.used_percent ?? "-")}%`
     : (s.reason || "저장장치 정보 없음");
-  const smartHealth = s.smart_available ? (s.health || "확인됨") : (s.mounted ? "SMART 미지원" : "연결 안 됨");
-  const selfTest = s.self_test_status ? `${s.self_test_type || "Self-test"}: ${s.self_test_status}` : "검사 기록 없음";
-  const smartCard = `<div class="storage-metric smart-metric"><span>저장장치 SMART</span><strong>${escapeHtml(smartHealth)}</strong>${s.smart_available ? `<small>${escapeHtml(s.model || "SSD")} · 최근 조회 ${escapeHtml(formatTimestamp(s.checked_at))}</small><div class="smart-line"><b>온도 ${escapeHtml(String(s.temperature ?? "-"))}℃</b><b>사용 ${escapeHtml(String(s.power_on_hours ?? "-"))}시간</b><b>전원 ${escapeHtml(String(s.power_cycle_count ?? "-"))}회</b><b>${escapeHtml(selfTest)}</b></div>` : `<small>${escapeHtml(s.reason || "SMART 정보를 확인할 수 없습니다.")}</small>`}</div>`;
   const bytes = n => { const v=Number(n||0); return v ? `${(v/1024/1024).toFixed(0)} MB` : "-"; };
   const usageCard = (label, percent, detail) => `<div class="usage-metric"><span>${label}</span><strong>${percent == null ? "-" : `${percent}%`}</strong><small>${escapeHtml(detail)}</small><div class="usage-track"><i style="width:${Math.max(0,Math.min(100,Number(percent||0)))}%"></i></div></div>`;
   const cells = [
@@ -642,7 +639,6 @@ function renderRouterOverview() {
     usageCard("CPU", m.cpu || 0, m.cpu ? `${m.cpu}% used` : `Load ${m.load == null ? "-" : Number(m.load).toFixed(2)}`),
     usageCard("Memory", m.memory, `${bytes(m.memoryUsed)} / ${bytes(m.memoryTotal)}`),
     `<div class="usage-metric"><span>Storage</span><strong>${escapeHtml(s.mounted ? `${String(s.used_percent ?? "-")}%` : "-")}</strong><small>${escapeHtml(storageUsage)}</small><div class="usage-track"><i style="width:${Math.max(0,Math.min(100,Number(s.used_percent||0)))}%"></i></div></div>`,
-    smartCard.replace("저장장치 SMART","Storage SMART"),
     `<div><span>Uptime</span><strong>${escapeHtml(formatUptime(m.uptime))}</strong></div>`,
     `<div><span>OpenWrt Version</span><strong>${escapeHtml(m.version)}</strong></div>`,
     `<div><span>Total Devices</span><strong>${escapeHtml(String(devices.length))}</strong></div>`
@@ -1452,7 +1448,7 @@ setInterval(load, NETWORK_REFRESH_INTERVAL_MS);
 
 /* KHNC version information */
 let KHNC_VERSION = "0.11.0 Stable";
-let KHNC_BUILD = "20260731.02";
+let KHNC_BUILD = "20260731.03";
 
 async function loadVersionInfo() {
   try {
@@ -1460,7 +1456,7 @@ async function loadVersionInfo() {
     if (!r.ok) return;
     const v = await r.json();
     KHNC_VERSION = `${v.version || "0.11.0"}${v.channel ? ` ${v.channel}` : ""}`;
-    KHNC_BUILD = v.build || "20260731.02";
+    KHNC_BUILD = v.build || "20260731.03";
   } catch (_) {}
   const versionEl = document.querySelector("#khncVersionText");
   const buildEl = document.querySelector("#khncBuildText");
@@ -1526,7 +1522,7 @@ function renderSecurityStatus(){
   const ts=tailscaleStatus||{};
   target.innerHTML=`<div class="panel-head dashboard-section-head"><h2>NETWORK SERVICE STATUS</h2></div><div class="security-status-grid">
     <article class="security-service-card"><div class="security-card-head"><div><small>DNS PROTECTION</small><h3>AdGuard Home</h3></div><span class="service-light ${adguardHealthy?"good":"danger"}">${adguardHealthy?"정상":"점검 필요"}</span></div><div class="security-metrics"><div><span>작동 상태</span><strong class="${adguard.serviceRunning?"status-ok":"status-bad"}">${adguard.serviceRunning?"Running":"Stopped"}</strong></div><div><span>DNS 상태</span><strong class="${adguard.dnsRunning?"status-ok":"status-bad"}">${adguard.dnsRunning?"AdGuard Running":"DNS Stopped"}</strong></div><div><span>위험 경고등</span><strong class="${adguardHealthy?"status-ok":"status-bad"}">${adguardHealthy?"정상":"점검 필요"}</strong></div></div></article>
-    <article class="security-service-card"><div class="security-card-head"><div><small>REMOTE NETWORK</small><h3>Tailscale</h3></div><span class="service-light ${ts.connected?"good":"danger"}">${ts.connected?"연결됨":"연결 안 됨"}</span></div><div class="security-metrics"><div><span>서비스</span><strong class="${ts.running?"status-ok":"status-bad"}">${ts.running?"Running":(ts.installed?"Stopped":"Not Installed")}</strong></div><div><span>연결 상태</span><strong class="${ts.connected?"status-ok":"status-bad"}">${escapeHtml(ts.backendState||"확인 불가")}</strong></div><div><span>Tailscale IP</span><strong>${escapeHtml(ts.ip||"-")}</strong></div></div>${Number(ts.peers)>0?`<small class="security-footnote">온라인 피어 ${Number(ts.peers)}대</small>`:""}</article>
+    <article class="security-service-card"><div class="security-card-head"><div><small>REMOTE NETWORK</small><h3>Tailscale</h3></div><span class="service-light ${ts.connected?"good":"danger"}">${ts.connected?"연결됨":"연결 안 됨"}</span></div><div class="security-metrics tailscale-metrics"><div><span>서비스</span><strong class="${ts.running?"status-ok":"status-bad"}">${ts.running?"Running":(ts.installed?"Stopped":"Not Installed")}</strong></div><div><span>연결 상태</span><strong class="${ts.connected?"status-ok":"status-bad"}">${escapeHtml(ts.backendState||"확인 불가")}</strong></div></div>${Number(ts.peers)>0?`<small class="security-footnote">온라인 피어 ${Number(ts.peers)}대</small>`:""}</article>
   </div>`;
 }
 function renderSystemPage(){
