@@ -16,7 +16,7 @@ write_unavailable() {
 : "${N2830_KEY:=/root/.ssh/khnc_n2830_key}"
 [ -r "$N2830_KEY" ] || { write_unavailable; exit 0; }
 
-RAW="$(timeout 8 ssh -i "$N2830_KEY" -p "$N2830_PORT" "$N2830_USER@$N2830_HOST" '
+RAW="$(ssh -i "$N2830_KEY" -p "$N2830_PORT" "$N2830_USER@$N2830_HOST" '
   has_process() { pidof "$1" >/dev/null 2>&1 || ps w 2>/dev/null | grep -q "[$(printf "%s" "$1" | cut -c1)]$(printf "%s" "$1" | cut -c2-)"; }
   if has_process AdGuardHome; then AG_SERVICE=true; else AG_SERVICE=false; fi
   if (netstat -ln 2>/dev/null; ss -ln 2>/dev/null) | grep -q ":53[[:space:]]"; then AG_DNS=true; else AG_DNS=false; fi
