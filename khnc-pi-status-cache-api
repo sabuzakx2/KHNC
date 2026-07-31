@@ -1,7 +1,9 @@
 #!/bin/sh
 printf 'Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n'
 
-if [ -s /tmp/khnc-pi-status.json ]; then
+if [ -s /tmp/khnc-n2830-status.json ]; then
+  cat /tmp/khnc-n2830-status.json
+elif [ -s /tmp/khnc-pi-status.json ]; then
   cat /tmp/khnc-pi-status.json
 else
   printf '{"available":false,"adguard":{"online":false},"tailscale":{"connected":false,"warning":"상태 확인 대기 중"}}\n'

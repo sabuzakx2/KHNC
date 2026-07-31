@@ -31,6 +31,12 @@ for FILE in index.html app.js styles.css version.json infra.json; do
   [ -r "$SOURCE_DIR/$FILE" ] && cp "$SOURCE_DIR/$FILE" "$APP_ROOT/$FILE"
 done
 
+# Move the shipped AdGuard location label to the current N2830 host without
+# altering a user-selected address, port, or any other infrastructure entry.
+if [ -r /etc/khnc/infra.json ]; then
+  sed -i 's/"host":"Raspberry Pi","ip":"192\\.168\\.1\\.106","port":3000/"host":"N2830","ip":"192.168.1.106","port":3000/' /etc/khnc/infra.json
+fi
+
 cp "$SOURCE_DIR/mobile.html" "$MOBILE_ROOT/index.html"
 cp "$SOURCE_DIR/mobile.css" "$MOBILE_ROOT/mobile.css"
 cp "$SOURCE_DIR/mobile.js" "$MOBILE_ROOT/mobile.js"
