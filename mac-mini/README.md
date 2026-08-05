@@ -2,12 +2,28 @@
 
 This first migration phase only reads AX53U status via SSH. It never sends an OpenWrt configuration, firewall, Wi-Fi, DHCP, or parental-control command.
 
-## Start
+## `/opt/khnc` deployment
 
-1. Copy `.env.example` to `.env` and adjust values if needed.
-2. Ensure the Mac mini can connect without a password:
-   `ssh -i ~/.ssh/khnc_ax53u_key -p 2222 root@192.168.1.1 'ubus call system board'`
-3. Run `docker compose up -d --build`.
-4. Open `http://127.0.0.1:9081` on the Mac mini.
+The deployed directory is intentionally aligned with the existing Docker host layout:
 
-The Compose binding is loopback-only for this phase. It can be exposed to the LAN after the read-only result is validated against the router UI.
+```
+/opt/khnc/
+├── backup/
+├── compose.yml
+├── config/
+│   ├── khnc.env
+│   ├── khnc_ax53u_key
+│   └── known_hosts
+├── data/
+├── Dockerfile
+├── public/
+└── server.mjs
+```
+
+1. Copy these `mac-mini` files into `/opt/khnc`.
+2. Create `config/khnc.env` from `config/khnc.env.example`.
+3. Place the AX53U private key at `config/khnc_ax53u_key` and the AX53U host entry at `config/known_hosts`.
+4. Run `sudo docker compose up -d --build` from `/opt/khnc`.
+5. Open `http://<docker-server-ip>:9081`.
+
+This phase remains read-only: it runs only AX53U status commands over SSH.
