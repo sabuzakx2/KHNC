@@ -29,4 +29,4 @@ The deployed directory is intentionally aligned with the existing Docker host la
 Desktop: `http://<docker-server-ip>:9081`
 Mobile: `http://<docker-server-ip>:9082`
 
-This phase remains read-only. Device editing, parental-policy changes, maintenance actions, and backup actions are deliberately disabled until the router and Mac results have been compared.
+This phase remains read-only. Device editing, parental-policy changes, maintenance actions, and backup actions are deliberately disabled until the router and Mac results have been compared. The Docker adapter executes the retained AX53U CGI scripts over SSH directly; it does not depend on router ports 8881 or 8882.

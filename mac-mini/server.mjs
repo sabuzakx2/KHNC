@@ -15,7 +15,7 @@ const config = {
 const commands = {
   system: "ubus call system board",
   wireless: "ubus call network.wireless status",
-  devices: "wget -qO- http://127.0.0.1:8881/cgi-bin/khnc-api",
+  devices: "cgi:khnc-api",
   remoteServices: "cat /tmp/khnc-n2830-status.json",
   parental: "nft -j list set inet khnc_parental blocked_macs"
 };
@@ -62,9 +62,11 @@ async function routerCgi(name) {
   const now = Date.now();
   const cached = cache.get(name);
   if (cached && now - cached.at < 4_000) return cached.result;
-  const result = await routerCommand(`wget -qO- -T 20 http://127.0.0.1:8881/cgi-bin/${name}`);
-  cache.set(name, { at: now, result });
-  return result;
+  const result = await routerCommand(`REQUEST_METHOD=GET QUERY_STRING='' /usr/share/khnc/www/cgi-bin/${name}`);
+  const body = result.stdout.replace(/^[\s\S]*?\r?\n\r?\n/, "");
+  const normalized = { ...result, stdout: body };
+  cache.set(name, { at: now, result: normalized });
+  return normalized;
 }
 
 function jsonResult(result, fallback = {}) {
@@ -74,7 +76,7 @@ function jsonResult(result, fallback = {}) {
 }
 
 async function overview() {
-  const entries = await Promise.all(Object.entries(commands).map(async ([name, command]) => [name, await routerCommand(command)]));
+  const entries = await Promise.all(Object.entries(commands).map(async ([name, command]) => [name, command.startsWith("cgi:") ? await routerCgi(command.slice(4)) : await routerCommand(command)]));
   const raw = Object.fromEntries(entries);
   const system = jsonResult(raw.system);
   const wireless = jsonResult(raw.wireless);

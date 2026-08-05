@@ -1,0 +1,17 @@
+#!/bin/sh
+# Removes only the router-hosted KHNC web service and static UI files.
+# KHNC control and status scripts stay available for the Mac mini SSH adapter.
+set -eu
+
+[ "$(id -u)" -eq 0 ] || { echo "Run as root." >&2; exit 1; }
+
+if [ -x /etc/init.d/khnc ]; then
+  /etc/init.d/khnc stop || true
+  /etc/init.d/khnc disable || true
+  rm -f /etc/init.d/khnc
+fi
+
+rm -rf /usr/share/khnc/mobile
+find /usr/share/khnc/www -maxdepth 1 -type f -delete 2>/dev/null || true
+
+echo "Router KHNC web UI removed. CGI control/status scripts were preserved for Mac mini SSH access."
