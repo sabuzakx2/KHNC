@@ -27,6 +27,6 @@ The deployed directory is intentionally aligned with the existing Docker host la
 5. Open `http://<docker-server-ip>:9081`.
 
 Desktop: `http://<docker-server-ip>:9081`
-Mobile: `http://<docker-server-ip>:9081/mobile/`
+Mobile: `http://<docker-server-ip>:9082`
 
 This phase remains read-only. Device editing, parental-policy changes, maintenance actions, and backup actions are deliberately disabled until the router and Mac results have been compared.

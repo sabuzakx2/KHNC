@@ -8,7 +8,8 @@ const config = {
   port: process.env.ROUTER_PORT || "2222",
   user: process.env.ROUTER_USER || "root",
   key: process.env.ROUTER_KEY || "/run/secrets/khnc_ax53u_key",
-  listenPort: Number(process.env.PORT || 9081)
+  listenPort: Number(process.env.PORT || 9081),
+  uiMode: process.env.UI_MODE === "mobile" ? "mobile" : "desktop"
 };
 
 const commands = {
@@ -115,13 +116,14 @@ createServer(async (req, res) => {
     res.end(result.ok ? result.stdout : JSON.stringify({ ok: false, error: result.error }));
     return;
   }
-  const urlPath = pathname === "/" ? "/index.html" : (pathname === "/mobile" ? "/mobile/index.html" : pathname);
+  const root = config.uiMode === "mobile" ? "public/mobile" : "public";
+  const urlPath = pathname === "/" ? "/index.html" : pathname;
   const safePath = normalize(urlPath).replace(/^\.\.(\/|\\|$)/, "");
   try {
-    const file = await readFile(join("public", safePath));
+    const file = await readFile(join(root, safePath));
     res.writeHead(200, { "content-type": mime[extname(safePath)] || "application/octet-stream" });
     res.end(file);
   } catch {
     res.writeHead(404).end("Not found");
   }
-}).listen(config.listenPort, "0.0.0.0", () => console.log(`KHNC Mac dashboard on :${config.listenPort}`));
+}).listen(config.listenPort, "0.0.0.0", () => console.log(`KHNC ${config.uiMode} on :${config.listenPort}`));

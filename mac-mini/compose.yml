@@ -1,10 +1,25 @@
 services:
-  khnc-dashboard:
+  khnc-desktop:
     build: .
     container_name: khnc
     env_file: ./config/khnc.env
     ports:
       - "9081:9081"
+    volumes:
+      - ./config/khnc_ax53u_key:/run/secrets/khnc_ax53u_key:ro
+      - ./config/known_hosts:/root/.ssh/known_hosts:ro
+      - ./data:/var/lib/khnc
+    restart: unless-stopped
+
+  khnc-mobile:
+    build: .
+    container_name: khnc-mobile
+    env_file: ./config/khnc.env
+    environment:
+      PORT: 9082
+      UI_MODE: mobile
+    ports:
+      - "9082:9082"
     volumes:
       - ./config/khnc_ax53u_key:/run/secrets/khnc_ax53u_key:ro
       - ./config/known_hosts:/root/.ssh/known_hosts:ro
