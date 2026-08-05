@@ -1,0 +1,10 @@
+services:
+  khnc-dashboard:
+    build: .
+    env_file: .env
+    ports:
+      - "127.0.0.1:9081:9081"
+    volumes:
+      - ${HOME}/.ssh/khnc_ax53u_key:/run/secrets/khnc_ax53u_key:ro
+      - ${HOME}/.ssh/known_hosts:/root/.ssh/known_hosts:ro
+    restart: unless-stopped

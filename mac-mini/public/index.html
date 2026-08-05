@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KHNC · Mac mini</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <header><div><small>MAC MINI · READ ONLY</small><h1>KHNC Dashboard</h1></div><button id="refresh">새로고침</button></header>
+    <p id="updated">상태를 불러오는 중입니다.</p>
+    <section class="grid" id="summary"></section>
+    <section class="panel"><h2>Wi‑Fi</h2><div id="wireless"></div></section>
+    <section class="panel"><h2>Network Services</h2><div id="services"></div></section>
+    <section class="panel"><h2>Parent Mode</h2><div id="parental"></div></section>
+    <section class="panel hidden" id="errorPanel"><h2>상태 조회 오류</h2><pre id="errors"></pre></section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
