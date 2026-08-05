@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f4f6f8">
+  <title>KHNC Mobile</title>
+  <link rel="stylesheet" href="./mobile.css?v=0.11.0.2">
+</head>
+<body>
+  <main class="mobile-app">
+    <header class="topbar"><div><small>KHNC MOBILE</small><h1 id="pageTitle">Home</h1></div><button id="refresh" aria-label="새로고침">↻</button></header>
+    <p id="notice" class="notice hidden"></p>
+
+    <section id="homeView" class="view active">
+      <div class="hero"><span>HOME NETWORK</span><strong id="homeOnline">확인 중</strong><small id="homeUpdated">공유기 데이터 연결 중</small></div>
+      <div id="summaryCards" class="summary-cards"></div>
+      <section class="panel"><div class="panel-head"><h2>Network</h2><span id="routerStatus" class="status">확인 중</span></div><div id="networkInfo" class="network-info"></div></section>
+    </section>
+
+    <section id="devicesView" class="view">
+      <label class="search"><span>⌕</span><input id="deviceSearch" placeholder="이름, IP, MAC 검색"></label>
+      <div class="filter-row"><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="online">Online</button><button class="filter" data-filter="wifi">Wi-Fi</button><button class="filter" data-filter="wired">LAN</button></div>
+      <div id="deviceList" class="device-list"></div>
+    </section>
+
+    <section id="parentView" class="view">
+      <p class="intro">Parent Mode에 등록된 기기의 인터넷 시간을 빠르게 관리합니다.</p>
+      <div id="parentList" class="parent-list"></div>
+    </section>
+
+    <section id="moreView" class="view">
+      <section class="panel"><h2>Desktop KHNC</h2><p>기기 등록, 그룹 관리, 통계, 유지관리는 데스크톱 화면에서 사용할 수 있습니다.</p><a id="desktopLink" class="link-button">Desktop 열기</a></section>
+      <section class="panel"><h2>Mobile service</h2><dl class="about"><div><dt>Address</dt><dd id="mobileAddress">-</dd></div><div><dt>Build</dt><dd id="mobileBuild">-</dd></div></dl></section>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="모바일 메뉴">
+    <button class="active" data-view="home"><span>⌂</span>Home</button>
+    <button data-view="devices"><span>▦</span>Devices</button>
+    <button data-view="parent"><span>◷</span>Parent</button>
+    <button data-view="more"><span>•••</span>More</button>
+  </nav>
+
+  <dialog id="policyDialog"><form id="policyForm" method="dialog">
+    <header><div><small>PARENT MODE</small><h2 id="policyTitle">Internet Schedule</h2></div><button type="button" id="closePolicy" class="close" aria-label="닫기">×</button></header>
+    <input id="policyMac" type="hidden">
+    <label class="switch-row"><span><b>Schedule</b><small>시간 정책을 적용합니다.</small></span><input id="scheduleEnabledMobile" type="checkbox"><i></i></label>
+    <label class="switch-row"><span><b>사용시간 추적</b><small>실제 전송량을 기준으로 사용시간을 계산합니다.</small></span><input id="usageTrackingMobile" type="checkbox"><i></i></label>
+    <label class="field"><span>현재 상태</span><select id="overrideMobile"><option value="schedule">Schedule 적용</option><option value="allow">Always allow</option><option value="block">Block now</option></select></label>
+    <div id="periodFields"></div>
+    <button class="save" type="submit">Save Policy</button>
+  </form></dialog>
+  <dialog id="deviceDialog"><form id="deviceForm" method="dialog">
+    <header><div><small>DEVICE MANAGEMENT</small><h2 id="deviceDialogTitle">기기 관리</h2></div><button type="button" id="closeDevice" class="close" aria-label="닫기">×</button></header>
+    <input id="deviceMac" type="hidden">
+    <label class="field"><span>기기 이름</span><input id="deviceName" maxlength="50" required></label>
+    <label class="field"><span>소유자</span><input id="deviceOwner" maxlength="30" placeholder="예: 공용, 하유"></label>
+    <label class="field"><span>그룹</span><input id="deviceGroup" maxlength="30" placeholder="예: Family"></label>
+    <label class="field"><span>위치</span><input id="deviceLocation" maxlength="40" placeholder="예: 거실"></label>
+    <label class="switch-row"><span><b>Parent Mode</b><small>인터넷 시간 정책 관리 대상에 추가합니다.</small></span><input id="deviceParent" type="checkbox"><i></i></label>
+    <button class="save" type="submit">기기 정보 저장</button>
+  </form></dialog>
+  <script src="./mobile.js?v=0.11.0.4"></script>
+</body>
+</html>

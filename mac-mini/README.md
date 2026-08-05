@@ -1,6 +1,6 @@
 # KHNC Mac mini read-only dashboard
 
-This first migration phase only reads AX53U status via SSH. It never sends an OpenWrt configuration, firewall, Wi-Fi, DHCP, or parental-control command.
+This first migration phase serves the existing KHNC desktop and mobile UI from Docker. It reads AX53U API data over SSH and never sends an OpenWrt configuration, firewall, Wi-Fi, DHCP, or parental-control command.
 
 ## `/opt/khnc` deployment
 
@@ -26,4 +26,7 @@ The deployed directory is intentionally aligned with the existing Docker host la
 4. Run `sudo docker compose up -d --build` from `/opt/khnc`.
 5. Open `http://<docker-server-ip>:9081`.
 
-This phase remains read-only: it runs only AX53U status commands over SSH.
+Desktop: `http://<docker-server-ip>:9081`
+Mobile: `http://<docker-server-ip>:9081/mobile/`
+
+This phase remains read-only. Device editing, parental-policy changes, maintenance actions, and backup actions are deliberately disabled until the router and Mac results have been compared.

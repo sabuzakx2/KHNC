@@ -1,0 +1,16 @@
+{
+  "equipment": [
+    {"id":"openwrt","name":"OpenWrt","type":"router","ip":"192.168.1.1"},
+    {"id":"nas","name":"NAS","type":"nas","ip":"192.168.1.10"},
+    {"id":"j1900","name":"J1900","type":"server","ip":""},
+    {"id":"mac","name":"Mac","type":"server","ip":""}
+  ],
+  "services": [
+    {"id":"ha","name":"Home Assistant","host":"J1900","ip":"","port":8123},
+    {"id":"adguard","name":"AdGuard Home","host":"N2830","ip":"192.168.1.106","port":3000},
+    {"id":"tvh","name":"TVHeadend","host":"NAS","ip":"192.168.1.10","port":9981},
+    {"id":"ollama","name":"Ollama","host":"Mac","ip":"","port":11434},
+    {"id":"n8n","name":"n8n","host":"NAS","ip":"192.168.1.10","port":5678},
+    {"id":"mqtt","name":"MQTT","host":"J1900","ip":"","port":1883}
+  ]
+}

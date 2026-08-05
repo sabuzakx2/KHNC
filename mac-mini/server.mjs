@@ -19,6 +19,13 @@ const commands = {
   parental: "nft -j list set inet khnc_parental blocked_macs"
 };
 
+const cgiNames = new Set([
+  "khnc-api", "khnc-infra-api", "khnc-maintenance-api", "khnc-parental-status",
+  "khnc-pi-status-api", "khnc-pi-status-cache-api", "khnc-policy-api", "khnc-smart-scan",
+  "khnc-state-api", "khnc-system-api", "khnc-traffic-api", "khnc-wifi-scan-api"
+]);
+const cache = new Map();
+
 function routerCommand(command) {
   return new Promise((resolve) => {
     const args = [
@@ -37,16 +44,26 @@ function routerCommand(command) {
     let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, 30_000);
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ ok: code === 0, stdout, error: code === 0 ? "" : (stderr.trim() || `SSH exit ${code}`) });
+      resolve({ ok: code === 0 && !timedOut, stdout, error: code === 0 && !timedOut ? "" : (stderr.trim() || (timedOut ? "SSH timed out" : `SSH exit ${code}`)) });
     });
     child.on("error", (error) => {
       clearTimeout(timer);
       resolve({ ok: false, stdout: "", error: error.message });
     });
   });
+}
+
+async function routerCgi(name) {
+  const now = Date.now();
+  const cached = cache.get(name);
+  if (cached && now - cached.at < 4_000) return cached.result;
+  const result = await routerCommand(`wget -qO- -T 20 http://127.0.0.1:8881/cgi-bin/${name}`);
+  cache.set(name, { at: now, result });
+  return result;
 }
 
 function jsonResult(result, fallback = {}) {
@@ -76,16 +93,29 @@ async function overview() {
   };
 }
 
-const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8" };
+const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8" };
 
 createServer(async (req, res) => {
-  if (req.url === "/api/overview") {
+  const pathname = new URL(req.url, "http://localhost").pathname;
+  if (pathname === "/api/overview") {
     const data = await overview();
     res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
     res.end(JSON.stringify(data));
     return;
   }
-  const urlPath = req.url === "/" ? "/index.html" : req.url.split("?")[0];
+  const cgiMatch = pathname.match(/^\/cgi-bin\/([a-z0-9-]+)$/);
+  if (cgiMatch && cgiNames.has(cgiMatch[1])) {
+    if (req.method !== "GET") {
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end('{"ok":false,"error":"Mac mini read-only mode"}');
+      return;
+    }
+    const result = await routerCgi(cgiMatch[1]);
+    res.writeHead(result.ok ? 200 : 502, { "content-type": "application/json", "cache-control": "no-store" });
+    res.end(result.ok ? result.stdout : JSON.stringify({ ok: false, error: result.error }));
+    return;
+  }
+  const urlPath = pathname === "/" ? "/index.html" : (pathname === "/mobile" ? "/mobile/index.html" : pathname);
   const safePath = normalize(urlPath).replace(/^\.\.(\/|\\|$)/, "");
   try {
     const file = await readFile(join("public", safePath));
