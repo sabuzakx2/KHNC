@@ -1708,8 +1708,8 @@ async function refreshInfrastructureStatus(){
     const r=await fetch(`/cgi-bin/khnc-infra-api?_=${Date.now()}`,{cache:'no-store'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const data=await r.json();
-    if(Array.isArray(data.equipment)) infraConfig.equipment=data.equipment;
-    if(Array.isArray(data.services)) infraConfig.services=data.services;
+    if(Array.isArray(data.equipment) && data.equipment.length) infraConfig.equipment=data.equipment;
+    if(Array.isArray(data.services) && data.services.length) infraConfig.services=data.services;
     if(data.tailscale&&typeof data.tailscale==="object") tailscaleStatus=data.tailscale;
     try {
       const remoteResponse = await fetch(`${REMOTE_STATUS_API}?_=${Date.now()}`, { cache: "no-store" });
