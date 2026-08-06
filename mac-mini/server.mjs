@@ -8,6 +8,10 @@ const config = {
   port: process.env.ROUTER_PORT || "2222",
   user: process.env.ROUTER_USER || "root",
   key: process.env.ROUTER_KEY || "/run/secrets/khnc_ax53u_key",
+  n2830Host: process.env.N2830_HOST || "192.168.1.106",
+  n2830Port: process.env.N2830_PORT || "22",
+  n2830User: process.env.N2830_USER || "kallos",
+  n2830Key: process.env.N2830_KEY || "/run/secrets/khnc_n2830_key",
   listenPort: Number(process.env.PORT || 9081),
   uiMode: process.env.UI_MODE === "mobile" ? "mobile" : "desktop"
 };
@@ -35,7 +39,7 @@ const commands = {
   system: "ubus call system board",
   wireless: "ubus call network.wireless status",
   devices: "cgi:khnc-api",
-  remoteServices: "cat /tmp/khnc-n2830-status.json",
+  remoteServices: "n2830-status",
   parental: "nft -j list set inet khnc_parental blocked_macs"
 };
 
@@ -57,17 +61,17 @@ const cgiCacheTtl = {
   "khnc-pi-status-cache-api": 60_000
 };
 
-function routerCommand(command, input = "") {
+function sshCommand({ host, port, user, key }, command, input = "") {
   return new Promise((resolve) => {
     const args = [
-      "-i", config.key,
-      "-p", String(config.port),
+      "-i", key,
+      "-p", String(port),
       "-o", "BatchMode=yes",
       "-o", "StrictHostKeyChecking=yes",
       "-o", "ConnectTimeout=6",
       "-o", "ServerAliveInterval=3",
       "-o", "ServerAliveCountMax=1",
-      `${config.user}@${config.host}`,
+      `${user}@${host}`,
       command
     ];
     const child = spawn("ssh", args, { stdio: ["pipe", "pipe", "pipe"] });
@@ -88,6 +92,36 @@ function routerCommand(command, input = "") {
       resolve({ ok: false, stdout: "", error: error.message });
     });
   });
+}
+
+function routerCommand(command, input = "") {
+  return sshCommand({ host: config.host, port: config.port, user: config.user, key: config.key }, command, input);
+}
+
+let n2830Cached = null;
+let n2830InFlight = null;
+async function n2830Status() {
+  if (n2830Cached && Date.now() - n2830Cached.at < 60_000) return n2830Cached.result;
+  if (n2830InFlight) return n2830InFlight;
+  n2830InFlight = (async () => {
+    const command = `
+      if systemctl is-active --quiet AdGuardHome 2>/dev/null; then AG_SERVICE=true; else AG_SERVICE=false; fi
+      if ss -lntu 2>/dev/null | grep -q ':53[[:space:]]'; then AG_DNS=true; else AG_DNS=false; fi
+      if command -v tailscale >/dev/null 2>&1; then TS_INSTALLED=true; else TS_INSTALLED=false; fi
+      if systemctl is-active --quiet tailscaled 2>/dev/null; then TS_RUNNING=true; else TS_RUNNING=false; fi
+      printf '{"available":true,"adguard":{"host":"N2830","ip":"%s","port":3000,"online":%s,"serviceRunning":%s,"dnsRunning":%s,"adminReachable":%s},"tailscale":{"installed":%s,"daemonRunning":%s,"running":%s,"connected":%s,"backendState":"%s","ip":"","peers":0,"warning":"%s"}}\\n' \
+        '${config.n2830Host}' "$AG_SERVICE" "$AG_SERVICE" "$AG_DNS" "$AG_SERVICE" "$TS_INSTALLED" "$TS_RUNNING" "$TS_RUNNING" "$TS_RUNNING" "$( [ "$TS_RUNNING" = true ] && printf Running || printf Stopped )" "$( [ "$TS_RUNNING" = true ] && printf 정상 || printf '연결 확인 필요' )"
+    `;
+    const result = await sshCommand({ host: config.n2830Host, port: config.n2830Port, user: config.n2830User, key: config.n2830Key }, command);
+    if (result.ok) {
+      try { JSON.parse(result.stdout); n2830Cached = { at: Date.now(), result }; }
+      catch { /* retain last good status below */ }
+    }
+    // A temporary N2830 connection error should not cause visible flapping.
+    return result.ok ? result : (n2830Cached?.result || result);
+  })();
+  try { return await n2830InFlight; }
+  finally { n2830InFlight = null; }
 }
 
 function shellQuote(value) {
@@ -165,7 +199,7 @@ function jsonResult(result, fallback = {}) {
 }
 
 async function overview() {
-  const entries = await Promise.all(Object.entries(commands).map(async ([name, command]) => [name, command.startsWith("cgi:") ? await routerCgi(command.slice(4)) : await routerCommand(command)]));
+  const entries = await Promise.all(Object.entries(commands).map(async ([name, command]) => [name, command === "n2830-status" ? await n2830Status() : (command.startsWith("cgi:") ? await routerCgi(command.slice(4)) : await routerCommand(command))]));
   const raw = Object.fromEntries(entries);
   const system = jsonResult(raw.system);
   const wireless = jsonResult(raw.wireless);
@@ -198,6 +232,12 @@ createServer(async (req, res) => {
   }
   if (pathname === "/cgi-bin/khnc-state-api") {
     await localState(req, res);
+    return;
+  }
+  if (pathname === "/cgi-bin/khnc-pi-status-cache-api") {
+    const result = await n2830Status();
+    res.writeHead(result.ok ? 200 : 502, { "content-type": "application/json", "cache-control": "no-store" });
+    res.end(result.ok ? result.stdout : JSON.stringify({ available: false, error: result.error }));
     return;
   }
   if (pathname === "/version.json") {
