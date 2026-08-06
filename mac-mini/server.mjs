@@ -54,7 +54,7 @@ const cgiCacheTtl = {
   "khnc-policy-api": 15_000,
   "khnc-parental-status": 15_000,
   "khnc-infra-api": 30_000,
-  "khnc-pi-status-cache-api": 30_000
+  "khnc-pi-status-cache-api": 60_000
 };
 
 function routerCommand(command, input = "") {
@@ -105,14 +105,9 @@ async function routerCgi(name, { method = "GET", query = "", body = "" } = {}) {
   // router CPU.
   if (isRead && inFlight.has(name)) return inFlight.get(name);
   const request = (async () => {
-    // The router keeps the N2830 service state in a short-lived file. Refresh
-    // it before returning the cache so service restarts are detected promptly.
-    const refreshRemoteStatus = name === "khnc-pi-status-cache-api"
-      ? "/usr/sbin/khnc-n2830-status >/dev/null 2>&1 || true; "
-      : "";
     const requestMethod = method === "POST" ? "POST" : "GET";
     const length = Buffer.byteLength(body);
-    const command = `${refreshRemoteStatus}REQUEST_METHOD=${requestMethod} CONTENT_LENGTH=${length} QUERY_STRING=${shellQuote(query)} /usr/share/khnc/www/cgi-bin/${name}`;
+    const command = `REQUEST_METHOD=${requestMethod} CONTENT_LENGTH=${length} QUERY_STRING=${shellQuote(query)} /usr/share/khnc/www/cgi-bin/${name}`;
     const result = await routerCommand(command, body);
     const responseBody = result.stdout.replace(/^[\s\S]*?\r?\n\r?\n/, "");
     const normalized = { ...result, stdout: responseBody };

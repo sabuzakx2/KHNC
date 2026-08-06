@@ -33,29 +33,18 @@ trap 'cleanup_tmp; rmdir "$LOCK" 2>/dev/null' EXIT HUP INT TERM
 # AX53U uses Dropbear's client.  The watchdog below provides the timeout, so
 # do not pass OpenSSH-only -o options which Dropbear ignores or rejects.
 ssh -i "$N2830_KEY" -p "$N2830_PORT" "$N2830_USER@$N2830_HOST" '
-  has_process() { pidof "$1" >/dev/null 2>&1 || ps w 2>/dev/null | grep -q "[$(printf "%s" "$1" | cut -c1)]$(printf "%s" "$1" | cut -c2-)"; }
-  if has_process AdGuardHome; then AG_SERVICE=true; else AG_SERVICE=false; fi
-  if (netstat -ln 2>/dev/null; ss -ln 2>/dev/null) | grep -q ":53[[:space:]]"; then AG_DNS=true; else AG_DNS=false; fi
-  TS_BIN=$(command -v tailscale 2>/dev/null)
-  if [ -n "$TS_BIN" ]; then TS_INSTALLED=true; else TS_INSTALLED=false; fi
-  if has_process tailscaled; then TS_DAEMON=true; else TS_DAEMON=false; fi
-  # On a restarting or unhealthy node, `tailscale status` can block. Ubuntu
-  # provides timeout(1), so limit only this optional detail lookup.
-  TS_RAW=""
-  if [ -n "$TS_BIN" ] && command -v timeout >/dev/null 2>&1; then
-    TS_RAW=$(timeout 4 "$TS_BIN" status --json 2>/dev/null)
-    TS_STATUS_RC=$?
-  else
-    TS_STATUS_RC=1
-  fi
-  TS_BACKEND=$(printf "%s" "$TS_RAW" | sed -n "s/.*\"BackendState\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1)
-  TS_IP=$(printf "%s" "$TS_RAW" | sed -n "s/.*\"TailscaleIPs\"[[:space:]]*:[[:space:]]*\[\"\([^\"]*\)\".*/\1/p" | head -n 1)
-  TS_PEERS=$(printf "%s" "$TS_RAW" | grep -o "\"Online\"[[:space:]]*:[[:space:]]*true" | wc -l | tr -d " ")
-  [ "$TS_DAEMON" = true ] && [ "$TS_BACKEND" = Running ] && [ "$TS_STATUS_RC" -eq 0 ] && TS_CONNECTED=true || TS_CONNECTED=false
-  printf "AG_SERVICE=%s\nAG_DNS=%s\nTS_INSTALLED=%s\nTS_DAEMON=%s\nTS_CONNECTED=%s\nTS_BACKEND=%s\nTS_IP=%s\nTS_PEERS=%s\n" "$AG_SERVICE" "$AG_DNS" "$TS_INSTALLED" "$TS_DAEMON" "$TS_CONNECTED" "${TS_BACKEND:-Stopped}" "$TS_IP" "${TS_PEERS:-0}"
+  # These are intentionally lightweight systemd checks.  `tailscale status
+  # --json` occasionally blocks long enough to consume a router CPU core.
+  if systemctl is-active --quiet AdGuardHome 2>/dev/null; then AG_SERVICE=true; else AG_SERVICE=false; fi
+  if ss -lntu 2>/dev/null | grep -q ":53[[:space:]]"; then AG_DNS=true; else AG_DNS=false; fi
+  if command -v tailscale >/dev/null 2>&1; then TS_INSTALLED=true; else TS_INSTALLED=false; fi
+  if systemctl is-active --quiet tailscaled 2>/dev/null; then TS_DAEMON=true; else TS_DAEMON=false; fi
+  [ "$TS_DAEMON" = true ] && TS_CONNECTED=true || TS_CONNECTED=false
+  [ "$TS_CONNECTED" = true ] && TS_BACKEND=Running || TS_BACKEND=Stopped
+  printf "AG_SERVICE=%s\nAG_DNS=%s\nTS_INSTALLED=%s\nTS_DAEMON=%s\nTS_CONNECTED=%s\nTS_BACKEND=%s\nTS_IP=\nTS_PEERS=0\n" "$AG_SERVICE" "$AG_DNS" "$TS_INSTALLED" "$TS_DAEMON" "$TS_CONNECTED" "$TS_BACKEND"
 ' > "$TMP" 2>/dev/null &
 SSH_PID=$!
-( sleep 10; kill "$SSH_PID" 2>/dev/null ) &
+( sleep 5; kill "$SSH_PID" 2>/dev/null ) &
 WATCHDOG_PID=$!
 wait "$SSH_PID"
 SSH_RC=$?

@@ -9,7 +9,7 @@ COLLECTOR=/usr/sbin/khnc-n2830-status
 start_service() {
   [ -x "$COLLECTOR" ] || return 0
   procd_open_instance
-  procd_set_param command /bin/sh -c "while :; do $COLLECTOR; sleep 30; done"
+  procd_set_param command /bin/sh -c "while :; do $COLLECTOR; sleep 120; done"
   procd_set_param respawn 3600 5 5
   procd_set_param stdout 1
   procd_set_param stderr 1
