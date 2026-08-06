@@ -1,6 +1,5 @@
 const API = "/cgi-bin/khnc-api";
 const SYSTEM_API = "/cgi-bin/khnc-system-api";
-const WIFI_SCAN_API = "/cgi-bin/khnc-wifi-scan-api";
 const TRAFFIC_API = "/cgi-bin/khnc-traffic-api";
 const POLICY_API = "/cgi-bin/khnc-policy-api";
 const PARENTAL_STATUS_API = "/cgi-bin/khnc-parental-status";
@@ -1247,6 +1246,7 @@ function openDeviceDialog(d) {
   $("#favoriteDevice").checked = !!d.favorite;
   $("#parentModeDevice").checked = !!d.parentMode;
   $("#unregisterDevice").classList.toggle("hidden", !d.registered);
+  $("#changeDeviceMac").classList.toggle("hidden", !d.registered);
   updatePreview();
   $("#deviceDialog").showModal();
   setTimeout(() => $("#displayName").focus(), 30);
@@ -1326,6 +1326,59 @@ function deleteCurrentDevice() {
   $("#deviceDialog").close();
   devices = devices.filter(item => item.mac !== mac);
   render();
+}
+
+function openMacMigration() {
+  const oldMac = String($("#deviceMac").value || "").toLowerCase();
+  const source = devices.find(item => item.mac === oldMac);
+  const candidates = devices.filter(item => {
+    const mac = String(item.mac || "").toLowerCase();
+    return mac && mac !== oldMac && !prefs[mac]?.registered && !prefs[mac]?.managed && !prefs[mac]?.deleted;
+  });
+  if (!oldMac || !prefs[oldMac]?.registered) return;
+  if (!candidates.length) {
+    alert("새 MAC 주소의 기기가 아직 검색되지 않았습니다. 새 기기를 Wi‑Fi에 연결한 뒤 다시 시도하세요.");
+    return;
+  }
+  $("#migrationOldMac").value = oldMac;
+  $("#macMigrationDescription").textContent = `${source?.name || oldMac}의 정보와 부모모드 정책을 새 MAC 주소로 이전합니다.`;
+  $("#migrationNewMac").innerHTML = candidates.map(item => {
+    const status = item.online ? "ONLINE" : "OFFLINE";
+    return `<option value="${escapeHtml(item.mac)}">${escapeHtml(item.name || "새 기기")} · ${escapeHtml(item.ip || "-")} · ${escapeHtml(item.mac)} · ${status}</option>`;
+  }).join("");
+  $("#deviceDialog").close();
+  $("#macMigrationDialog").showModal();
+}
+
+async function migrateDeviceMac(event) {
+  event.preventDefault();
+  const oldMac = String($("#migrationOldMac").value || "").toLowerCase();
+  const newMac = String($("#migrationNewMac").value || "").toLowerCase();
+  const source = prefs[oldMac];
+  if (!source?.registered || !newMac || oldMac === newMac) return;
+  if (prefs[newMac]?.registered || prefs[newMac]?.managed) {
+    alert("선택한 MAC 주소는 이미 등록된 기기입니다.");
+    return;
+  }
+  if (!confirm(`기존 기기 정보를 ${newMac} 주소로 이전할까요?\n기존 MAC 주소는 삭제 처리됩니다.`)) return;
+
+  prefs[newMac] = { ...source, registered: true, managed: true, deleted: false, migratedFrom: oldMac, migratedAt: Date.now() };
+  prefs[oldMac] = { deleted: true, migratedTo: newMac, migratedAt: Date.now() };
+  if (policies[oldMac]) {
+    policies[newMac] = { ...policies[oldMac] };
+    delete policies[oldMac];
+  }
+  const order = storedDeviceOrder().map(mac => String(mac).toLowerCase() === oldMac ? newMac : String(mac).toLowerCase());
+  localStorage.setItem(DEVICE_ORDER_KEY, JSON.stringify([...new Set(order)]));
+  usageBuckets.forEach(item => { if (String(item.mac || "").toLowerCase() === oldMac) item.mac = newMac; });
+  usageDailyBuckets.forEach(item => { if (String(item.mac || "").toLowerCase() === oldMac) item.mac = newMac; });
+  saveUsageBuckets();
+  localStorage.setItem("khnc-policies", JSON.stringify(policies));
+  savePrefs();
+  try { await persistPolicies(); }
+  catch (error) { alert(`기기 정보는 이전했지만 방화벽 정책 저장에 실패했습니다: ${error.message}`); }
+  $("#macMigrationDialog").close();
+  await load();
 }
 
 function deletedDeviceMacs() {
@@ -1415,6 +1468,10 @@ $("#cancelDevice").onclick = () => $("#deviceDialog").close();
 $("#closeDeviceDialog").onclick = () => $("#deviceDialog").close();
 $("#unregisterDevice").onclick = unregisterCurrent;
 $("#deleteDevice").onclick = deleteCurrentDevice;
+$("#changeDeviceMac").onclick = openMacMigration;
+$("#macMigrationForm").onsubmit = migrateDeviceMac;
+$("#cancelMacMigration").onclick = () => $("#macMigrationDialog").close();
+$("#closeMacMigrationDialog").onclick = () => $("#macMigrationDialog").close();
 $("#restoreDeletedDevices").onclick = restoreDeletedDevices;
 $("#deviceType").onchange = () => { delete $("#iconSelect").dataset.touched; updatePreview(); };
 $("#iconSelect").onchange = () => { $("#iconSelect").dataset.touched = "1"; updatePreview(); };
@@ -1660,7 +1717,6 @@ $("#mobileMenuButton").onclick=()=>setMobileMenu(!document.querySelector(".shell
 $("#mobileBackdrop").onclick=()=>setMobileMenu(false);
 $("#backupDb").onclick=backupDb;
 $("#restoreDb").onchange=async e=>{try{if(e.target.files[0])await restoreDbFile(e.target.files[0]);}catch(err){alert(`복원 실패: ${err.message}`)}};
-$("#scanNearbyWifi").onclick=scanNearbyWifi;
 lastRefreshAt=new Date();
 loadVersionInfo();
 render();

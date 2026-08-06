@@ -87,11 +87,6 @@
       <nav class="section-subnav" aria-label="System"><button class="active" data-subview="system">Overview</button><button data-subview="statistics">Statistics</button></nav>
       <section class="page-intro"><p class="eyebrow">SYSTEM</p><h2>Overview</h2><p>OpenWrt 정보, 주변 Wi-Fi 채널 분석과 KHNC 데이터 백업을 관리합니다.</p></section>
       <section id="systemInfoGrid" class="system-info-grid"></section>
-      <section class="wifi-scan-panel">
-        <div class="panel-head"><div><p class="eyebrow">WI-FI ANALYZER</p><h3>주변 Wi-Fi 신호</h3><small>주변 AP의 채널과 신호를 검색해 채널 선택을 돕습니다.</small></div><button id="scanNearbyWifi">주변 Wi-Fi 검색</button></div>
-        <div id="wifiScanSummary" class="wifi-scan-summary"><p>검색 버튼을 눌러 주변 채널 사용 현황을 확인하세요.</p></div>
-        <div id="wifiScanResults" class="wifi-scan-results"></div>
-      </section>
       <section class="backup-panel">
         <div><h3>DB Backup / Restore</h3><p>기기 등록정보, 그룹, 정책, 인프라 설정을 JSON으로 백업하거나 복원합니다.</p></div>
         <div class="backup-actions"><button id="backupDb">백업 다운로드</button><label class="restore-label">복원 파일 선택<input id="restoreDb" type="file" accept="application/json"></label></div>
@@ -206,10 +201,21 @@
     <div class="dialog-actions split">
       <button type="button" id="unregisterDevice" class="danger hidden">등록 해제</button>
       <button type="button" id="deleteDevice" class="danger">기기 삭제</button>
+      <button type="button" id="changeDeviceMac" class="hidden">MAC 주소 변경</button>
       <span></span>
       <button type="button" id="cancelDevice">취소</button>
       <button type="submit" class="primary">저장</button>
     </div>
+  </form>
+</dialog>
+
+<dialog id="macMigrationDialog" class="device-dialog">
+  <form id="macMigrationForm" method="dialog">
+    <div class="dialog-title-row"><div><p class="eyebrow">DEVICE MAC MIGRATION</p><h3>MAC 주소 변경</h3></div><button type="button" class="icon-button" id="closeMacMigrationDialog" aria-label="닫기">×</button></div>
+    <input type="hidden" id="migrationOldMac">
+    <p id="macMigrationDescription">새로 연결된 기기를 선택하면 기존 설정과 부모모드 정책을 이전합니다.</p>
+    <label>새 MAC 주소<select id="migrationNewMac" required></select></label>
+    <div class="dialog-actions"><button type="button" id="cancelMacMigration">취소</button><button type="submit" class="primary">이전 및 기존 기기 삭제</button></div>
   </form>
 </dialog>
 
