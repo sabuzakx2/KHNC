@@ -1375,7 +1375,7 @@ async function load() {
     lastRaw = raw;
     if (systemResult.status === "fulfilled" && systemResult.value.ok) {
       try { lastSystemRaw = await systemResult.value.json(); } catch { lastSystemRaw = null; }
-    }
+    } else lastSystemRaw = null;
     if (lastSystemRaw?.system) raw.system = { ...(raw.system || {}), ...lastSystemRaw.system };
     devices = normalize(raw);
     lastRefreshAt = new Date();

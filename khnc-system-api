@@ -34,14 +34,14 @@ elif [ -n "$LAN_IPV6_GLOBAL" ]; then LAN_ADDRESS="$LAN_IPV6_GLOBAL"
 else LAN_ADDRESS="$LAN_IPV6_LINK"
 fi
 
-# CPU 사용률을 /proc/stat 두 번 샘플링하여 계산한다.
-read_cpu() { awk '/^cpu / {idle=$5+$6; total=0; for(i=2;i<=NF;i++) total+=$i; print total, idle; exit}' /proc/stat; }
-set -- $(read_cpu); CPU_TOTAL_1="$1"; CPU_IDLE_1="$2"
-sleep 1
-set -- $(read_cpu); CPU_TOTAL_2="$1"; CPU_IDLE_2="$2"
-CPU_DELTA=$((CPU_TOTAL_2-CPU_TOTAL_1))
-CPU_IDLE_DELTA=$((CPU_IDLE_2-CPU_IDLE_1))
-if [ "$CPU_DELTA" -gt 0 ]; then CPU_PERCENT=$(( (CPU_DELTA-CPU_IDLE_DELTA)*100/CPU_DELTA )); else CPU_PERCENT=0; fi
+# BusyBox top already reports the router's current CPU snapshot.  Using it
+# avoids a one-second /proc/stat sample that was easily skewed by KHNC's own
+# short CGI/SSH activity.
+CPU_IDLE="$(top -bn1 2>/dev/null | awk '/^CPU:/ { for (i=1;i<=NF;i++) if ($i=="idle") {v=$(i-1); gsub(/%/,"",v); print v; exit} }')"
+case "$CPU_IDLE" in
+  ''|*[!0-9]*) CPU_PERCENT=0 ;;
+  *) CPU_PERCENT=$((100-CPU_IDLE)); [ "$CPU_PERCENT" -ge 0 ] || CPU_PERCENT=0 ;;
+esac
 
 # extroot 또는 /overlay에 실제 연결된 블록 장치를 찾는다.
 # overlayfs가 /proc/mounts에 먼저 보이는 환경을 고려해 df 결과를 우선 사용한다.

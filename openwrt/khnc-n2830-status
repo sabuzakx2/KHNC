@@ -5,6 +5,12 @@ OUT=/tmp/khnc-n2830-status.json
 LOCK=/tmp/khnc-n2830-status.lock
 
 write_unavailable() {
+  # Keep the last successful reading during a transient SSH timeout.  A
+  # single missed poll must not make a healthy remote Tailscale node flicker
+  # between connected and disconnected in the dashboard.
+  if [ -s "$OUT" ] && grep -q '"available":true' "$OUT" 2>/dev/null; then
+    return
+  fi
   printf '{"available":false,"adguard":{"online":false,"serviceRunning":false,"dnsRunning":false},"tailscale":{"installed":false,"running":false,"connected":false,"backendState":"Status check failed","ip":"","peers":0,"warning":"N2830 status unavailable"}}\n' > "$OUT"
 }
 
