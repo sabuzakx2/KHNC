@@ -149,7 +149,10 @@ createServer(async (req, res) => {
   const safePath = normalize(urlPath).replace(/^\.\.(\/|\\|$)/, "");
   try {
     const file = await readFile(join(root, safePath));
-    res.writeHead(200, { "content-type": mime[extname(safePath)] || "application/octet-stream" });
+    res.writeHead(200, {
+      "content-type": mime[extname(safePath)] || "application/octet-stream",
+      "cache-control": "no-store"
+    });
     res.end(file);
   } catch {
     res.writeHead(404).end("Not found");
