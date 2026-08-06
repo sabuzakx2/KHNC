@@ -206,16 +206,14 @@ createServer(async (req, res) => {
     return;
   }
   if (pathname === "/version.json") {
-    const source = config.uiMode === "mobile" ? "public/mobile/version.json" : "public/version.json";
-    try {
-      const version = JSON.parse(await readFile(source, "utf8"));
-      Object.assign(version, currentBuildMetadata());
-      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-      res.end(JSON.stringify(version, null, 2) + "\n");
-    } catch {
-      res.writeHead(500, { "content-type": "application/json" });
-      res.end('{"ok":false,"error":"Version metadata unavailable"}');
-    }
+    const version = {
+      version: "0.11.0",
+      channel: "Stable",
+      ...currentBuildMetadata(),
+      schemaVersion: 1
+    };
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(JSON.stringify(version, null, 2) + "\n");
     return;
   }
   const cgiMatch = pathname.match(/^\/cgi-bin\/([a-z0-9-]+)$/);
