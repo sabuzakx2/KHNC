@@ -12,6 +12,25 @@ const config = {
   uiMode: process.env.UI_MODE === "mobile" ? "mobile" : "desktop"
 };
 
+// The dashboard is deployed as a pair of containers.  Generate the visible
+// build metadata when each container starts, rather than relying on Docker's
+// layer cache to rewrite a checked-in JSON file.
+const startedAt = new Date();
+function currentBuildMetadata() {
+  const kst = new Date(startedAt.getTime() + 9 * 60 * 60 * 1000);
+  const pad = (value) => String(value).padStart(2, "0");
+  const year = kst.getUTCFullYear();
+  const month = pad(kst.getUTCMonth() + 1);
+  const day = pad(kst.getUTCDate());
+  const hour = pad(kst.getUTCHours());
+  const minute = pad(kst.getUTCMinutes());
+  const second = pad(kst.getUTCSeconds());
+  return {
+    build: `${year}${month}${day}.${hour}${minute}${second}`,
+    builtAt: `${year}-${month}-${day}T${hour}:${minute}:${second}+09:00`
+  };
+}
+
 const commands = {
   system: "ubus call system board",
   wireless: "ubus call network.wireless status",
@@ -184,6 +203,19 @@ createServer(async (req, res) => {
   }
   if (pathname === "/cgi-bin/khnc-state-api") {
     await localState(req, res);
+    return;
+  }
+  if (pathname === "/version.json") {
+    const source = config.uiMode === "mobile" ? "public/mobile/version.json" : "public/version.json";
+    try {
+      const version = JSON.parse(await readFile(source, "utf8"));
+      Object.assign(version, currentBuildMetadata());
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      res.end(JSON.stringify(version, null, 2) + "\n");
+    } catch {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end('{"ok":false,"error":"Version metadata unavailable"}');
+    }
     return;
   }
   const cgiMatch = pathname.match(/^\/cgi-bin\/([a-z0-9-]+)$/);
