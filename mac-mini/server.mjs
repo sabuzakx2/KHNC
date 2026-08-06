@@ -62,7 +62,13 @@ async function routerCgi(name) {
   const now = Date.now();
   const cached = cache.get(name);
   if (cached && now - cached.at < 4_000) return cached.result;
-  const result = await routerCommand(`REQUEST_METHOD=GET QUERY_STRING='' /usr/share/khnc/www/cgi-bin/${name}`);
+  // The router keeps the N2830 service state in a short-lived file.  Refresh
+  // it before returning the cache so a rebooted service is not shown with an
+  // old/offline result until the router-side timer eventually runs.
+  const refreshRemoteStatus = name === "khnc-pi-status-cache-api"
+    ? "/usr/sbin/khnc-n2830-status >/dev/null 2>&1 || true; "
+    : "";
+  const result = await routerCommand(`${refreshRemoteStatus}REQUEST_METHOD=GET QUERY_STRING='' /usr/share/khnc/www/cgi-bin/${name}`);
   const body = result.stdout.replace(/^[\s\S]*?\r?\n\r?\n/, "");
   const normalized = { ...result, stdout: body };
   cache.set(name, { at: now, result: normalized });

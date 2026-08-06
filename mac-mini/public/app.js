@@ -1704,6 +1704,16 @@ function applyRemoteHostedStatus(data) {
 
 /* Live Home Infrastructure status - Build 20260718.03 */
 async function refreshInfrastructureStatus(){
+  // Remote service status is independent of the optional infrastructure API.
+  // Keep the dashboard badge live even if a NAS/service probe takes too long.
+  let remoteStatusLoaded=false;
+  try {
+    const remoteResponse = await fetch(`${REMOTE_STATUS_API}?_=${Date.now()}`, { cache: "no-store" });
+    if (remoteResponse.ok) {
+      applyRemoteHostedStatus(await remoteResponse.json());
+      remoteStatusLoaded=true;
+    }
+  } catch (_) {}
   try{
     const r=await fetch(`/cgi-bin/khnc-infra-api?_=${Date.now()}`,{cache:'no-store'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -1711,17 +1721,13 @@ async function refreshInfrastructureStatus(){
     if(Array.isArray(data.equipment) && data.equipment.length) infraConfig.equipment=data.equipment;
     if(Array.isArray(data.services) && data.services.length) infraConfig.services=data.services;
     if(data.tailscale&&typeof data.tailscale==="object") tailscaleStatus=data.tailscale;
-    try {
-      const remoteResponse = await fetch(`${REMOTE_STATUS_API}?_=${Date.now()}`, { cache: "no-store" });
-      if (remoteResponse.ok) applyRemoteHostedStatus(await remoteResponse.json());
-    } catch (_) {}
     renderStableDashboard();
     renderHomeStatus();
   }catch(e){
     // Do not leave an old "Running" indicator on screen when the live check fails.
     tailscaleStatus={installed:false,running:false,connected:false,backendState:"Status check failed",ip:"",peers:0,warning:"Status check failed"};
     const adguard=(infraConfig.services||[]).find(item=>item.id==="adguard");
-    if(adguard) Object.assign(adguard,{online:false,serviceRunning:false,dnsRunning:false,serviceStatus:"Stopped",dnsStatus:"DNS Stopped"});
+    if(adguard && !remoteStatusLoaded) Object.assign(adguard,{online:false,serviceRunning:false,dnsRunning:false,serviceStatus:"Stopped",dnsStatus:"DNS Stopped"});
     renderStableDashboard();
     console.warn('KHNC infra status:',e.message);
   }
