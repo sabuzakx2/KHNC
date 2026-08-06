@@ -71,6 +71,30 @@ for OBJ in $(ubus list 2>/dev/null | grep '^hostapd\.'); do
  printf ']}'
 done
 
+# Some driver/BSS combinations expose only a subset of clients through
+# hostapd ubus (notably additional K-main SSIDs).  iwinfo is the OpenWrt
+# fallback and reports stations attached to every active wireless interface.
+if command -v iwinfo >/dev/null 2>&1; then
+ for IFACE in $(iwinfo 2>/dev/null | awk '/^[^[:space:]]+[[:space:]]+ESSID:/ {print $1}'); do
+  SSID="$(iwinfo "$IFACE" info 2>/dev/null | sed -n 's/.*ESSID: "\([^"]*\)".*/\1/p' | head -n 1)"
+  [ -n "$SSID" ] || continue
+  CLIENT_ROWS="$(iwinfo "$IFACE" assoclist 2>/dev/null | sed -n 's/^[[:space:]]*\([0-9A-Fa-f:]\{17\}\).* \(-[0-9][0-9]*\) dBm.*/\1|\2/p')"
+  [ -n "$CLIENT_ROWS" ] || continue
+  case "$IFACE" in *2g*|*0*) BAND='2.4 GHz';; *5g*|*1*) BAND='5 GHz';; *) BAND='Wi-Fi';; esac
+  [ "$FIRST_RADIO" -eq 1 ] || printf ','; FIRST_RADIO=0
+  printf '{"interface":"%s","ssid":"%s","band":"%s","clients":[' "$(json_escape "$IFACE")" "$(json_escape "$SSID")" "$(json_escape "$BAND")"
+  FIRST_CLIENT=1
+  printf '%s\n' "$CLIENT_ROWS" | while IFS='|' read -r RAW_MAC SIGNAL; do
+   MAC="$(printf '%s' "$RAW_MAC" | tr A-F a-f)"
+   grep -Fxq "$MAC" "$WIFI_TMP" && continue
+   printf '%s\n' "$MAC" >> "$WIFI_TMP"
+   [ "$FIRST_CLIENT" -eq 1 ] || printf ','; FIRST_CLIENT=0
+   printf '{"mac":"%s","signal":%s}' "$(json_escape "$MAC")" "${SIGNAL:--100}"
+  done
+  printf ']}'
+ done
+fi
+
 # Quiet wired devices such as printers and network tuners may not generate
 # traffic for long periods. Probe all known LAN IPv4 addresses in parallel so
 # the kernel refreshes its ARP/neighbor state before wired detection. ICMP
