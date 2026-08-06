@@ -1714,12 +1714,12 @@ function applyRemoteHostedStatus(data) {
 async function refreshInfrastructureStatus(){
   // Remote service status is independent of the optional infrastructure API.
   // Keep the dashboard badge live even if a NAS/service probe takes too long.
-  let remoteStatusLoaded=false;
+  let remoteStatus=null;
   try {
     const remoteResponse = await fetch(`${REMOTE_STATUS_API}?_=${Date.now()}`, { cache: "no-store" });
     if (remoteResponse.ok) {
-      applyRemoteHostedStatus(await remoteResponse.json());
-      remoteStatusLoaded=true;
+      const data = await remoteResponse.json();
+      if (data?.available !== false) remoteStatus=data;
     }
   } catch (_) {}
   try{
@@ -1728,14 +1728,18 @@ async function refreshInfrastructureStatus(){
     const data=await r.json();
     if(Array.isArray(data.equipment) && data.equipment.length) infraConfig.equipment=data.equipment;
     if(Array.isArray(data.services) && data.services.length) infraConfig.services=data.services;
-    if(data.tailscale&&typeof data.tailscale==="object") tailscaleStatus=data.tailscale;
+    // Router-local Tailscale is not the hosted N2830 service. Use it only as
+    // a fallback when the N2830 status endpoint is unavailable.
+    if(!remoteStatus && data.tailscale&&typeof data.tailscale==="object") tailscaleStatus=data.tailscale;
+    if(remoteStatus) applyRemoteHostedStatus(remoteStatus);
     renderStableDashboard();
     renderHomeStatus();
   }catch(e){
     // Do not leave an old "Running" indicator on screen when the live check fails.
     tailscaleStatus={installed:false,running:false,connected:false,backendState:"Status check failed",ip:"",peers:0,warning:"Status check failed"};
     const adguard=(infraConfig.services||[]).find(item=>item.id==="adguard");
-    if(adguard && !remoteStatusLoaded) Object.assign(adguard,{online:false,serviceRunning:false,dnsRunning:false,serviceStatus:"Stopped",dnsStatus:"DNS Stopped"});
+    if(adguard && !remoteStatus) Object.assign(adguard,{online:false,serviceRunning:false,dnsRunning:false,serviceStatus:"Stopped",dnsStatus:"DNS Stopped"});
+    if(remoteStatus) applyRemoteHostedStatus(remoteStatus);
     renderStableDashboard();
     console.warn('KHNC infra status:',e.message);
   }
