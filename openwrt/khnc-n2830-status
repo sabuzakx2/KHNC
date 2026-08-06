@@ -24,9 +24,9 @@ TMP=/tmp/khnc-n2830-status.$$
 cleanup_tmp() { rm -f "$TMP"; }
 trap 'cleanup_tmp; rmdir "$LOCK" 2>/dev/null' EXIT HUP INT TERM
 
-ssh -i "$N2830_KEY" -p "$N2830_PORT" \
-  -o BatchMode=yes -o ConnectTimeout=4 -o ServerAliveInterval=3 -o ServerAliveCountMax=1 \
-  "$N2830_USER@$N2830_HOST" '
+# AX53U uses Dropbear's client.  The watchdog below provides the timeout, so
+# do not pass OpenSSH-only -o options which Dropbear ignores or rejects.
+ssh -i "$N2830_KEY" -p "$N2830_PORT" "$N2830_USER@$N2830_HOST" '
   has_process() { pidof "$1" >/dev/null 2>&1 || ps w 2>/dev/null | grep -q "[$(printf "%s" "$1" | cut -c1)]$(printf "%s" "$1" | cut -c2-)"; }
   if has_process AdGuardHome; then AG_SERVICE=true; else AG_SERVICE=false; fi
   if (netstat -ln 2>/dev/null; ss -ln 2>/dev/null) | grep -q ":53[[:space:]]"; then AG_DNS=true; else AG_DNS=false; fi
