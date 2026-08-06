@@ -28,7 +28,7 @@ let usageBuckets = readJSON("khnc-usage-buckets", []);
 let usageDailyBuckets = readJSON("khnc-usage-daily", []);
 let activeView = "dashboard";
 let parentalStatus = {};
-const TRAFFIC_INTERVAL_MS = 3000;
+const TRAFFIC_INTERVAL_MS = 10 * 1000;
 const TRAFFIC_WINDOW = 3;
 const WIRED_TRAFFIC_GRACE_MS = 3 * 60 * 1000;
 const NETWORK_REFRESH_INTERVAL_MS = 30 * 1000;
@@ -1442,9 +1442,9 @@ window.addEventListener("focus", () => syncFromServer());
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") syncFromServer();
 });
-setInterval(() => syncFromServer(), 5000);
+setInterval(() => syncFromServer(), 30 * 1000);
 setInterval(refreshTraffic, TRAFFIC_INTERVAL_MS);
-setInterval(load, NETWORK_REFRESH_INTERVAL_MS);
+setInterval(load, 60 * 1000);
 
 /* KHNC version information */
 let KHNC_VERSION = "0.11.0 Stable";
@@ -1733,7 +1733,7 @@ async function refreshInfrastructureStatus(){
   }
 }
 refreshInfrastructureStatus();
-setInterval(refreshInfrastructureStatus,15000);
+setInterval(refreshInfrastructureStatus,30 * 1000);
 
 /* KHNC v0.11 Maintenance */
 const MAINTENANCE_API = "/cgi-bin/khnc-maintenance-api";

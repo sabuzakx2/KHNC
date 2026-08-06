@@ -26,6 +26,17 @@ const cgiNames = new Set([
   "khnc-state-api", "khnc-system-api", "khnc-traffic-api", "khnc-wifi-scan-api"
 ]);
 const cache = new Map();
+const inFlight = new Map();
+const cgiCacheTtl = {
+  "khnc-api": 10_000,
+  "khnc-system-api": 15_000,
+  "khnc-traffic-api": 8_000,
+  "khnc-state-api": 15_000,
+  "khnc-policy-api": 15_000,
+  "khnc-parental-status": 15_000,
+  "khnc-infra-api": 30_000,
+  "khnc-pi-status-cache-api": 30_000
+};
 
 function routerCommand(command) {
   return new Promise((resolve) => {
@@ -61,18 +72,27 @@ function routerCommand(command) {
 async function routerCgi(name) {
   const now = Date.now();
   const cached = cache.get(name);
-  if (cached && now - cached.at < 4_000) return cached.result;
-  // The router keeps the N2830 service state in a short-lived file.  Refresh
-  // it before returning the cache so a rebooted service is not shown with an
-  // old/offline result until the router-side timer eventually runs.
-  const refreshRemoteStatus = name === "khnc-pi-status-cache-api"
-    ? "/usr/sbin/khnc-n2830-status >/dev/null 2>&1 || true; "
-    : "";
-  const result = await routerCommand(`${refreshRemoteStatus}REQUEST_METHOD=GET QUERY_STRING='' /usr/share/khnc/www/cgi-bin/${name}`);
-  const body = result.stdout.replace(/^[\s\S]*?\r?\n\r?\n/, "");
-  const normalized = { ...result, stdout: body };
-  cache.set(name, { at: now, result: normalized });
-  return normalized;
+  const ttl = cgiCacheTtl[name] || 10_000;
+  if (cached && now - cached.at < ttl) return cached.result;
+  // Many browser views request the same CGI at once.  One AX53U CGI process
+  // is enough; share it instead of starting parallel SSH sessions on a small
+  // router CPU.
+  if (inFlight.has(name)) return inFlight.get(name);
+  const request = (async () => {
+    // The router keeps the N2830 service state in a short-lived file. Refresh
+    // it before returning the cache so service restarts are detected promptly.
+    const refreshRemoteStatus = name === "khnc-pi-status-cache-api"
+      ? "/usr/sbin/khnc-n2830-status >/dev/null 2>&1 || true; "
+      : "";
+    const result = await routerCommand(`${refreshRemoteStatus}REQUEST_METHOD=GET QUERY_STRING='' /usr/share/khnc/www/cgi-bin/${name}`);
+    const body = result.stdout.replace(/^[\s\S]*?\r?\n\r?\n/, "");
+    const normalized = { ...result, stdout: body };
+    if (result.ok) cache.set(name, { at: Date.now(), result: normalized });
+    return normalized;
+  })();
+  inFlight.set(name, request);
+  try { return await request; }
+  finally { inFlight.delete(name); }
 }
 
 function jsonResult(result, fallback = {}) {
