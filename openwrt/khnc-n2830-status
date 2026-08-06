@@ -2,6 +2,7 @@
 
 CONF=/etc/khnc/n2830.conf
 OUT=/tmp/khnc-n2830-status.json
+LOCK=/tmp/khnc-n2830-status.lock
 
 write_unavailable() {
   printf '{"available":false,"adguard":{"online":false,"serviceRunning":false,"dnsRunning":false},"tailscale":{"installed":false,"running":false,"connected":false,"backendState":"Status check failed","ip":"","peers":0,"warning":"N2830 status unavailable"}}\n' > "$OUT"
@@ -16,7 +17,16 @@ write_unavailable() {
 : "${N2830_KEY:=/root/.ssh/khnc_n2830_key}"
 [ -r "$N2830_KEY" ] || { write_unavailable; exit 0; }
 
-RAW="$(ssh -i "$N2830_KEY" -p "$N2830_PORT" "$N2830_USER@$N2830_HOST" '
+# The periodic collector and an on-demand dashboard request may overlap.  A
+# single SSH check is sufficient and avoids consuming the router CPU twice.
+mkdir "$LOCK" 2>/dev/null || exit 0
+TMP=/tmp/khnc-n2830-status.$$
+cleanup_tmp() { rm -f "$TMP"; }
+trap 'cleanup_tmp; rmdir "$LOCK" 2>/dev/null' EXIT HUP INT TERM
+
+ssh -i "$N2830_KEY" -p "$N2830_PORT" \
+  -o BatchMode=yes -o ConnectTimeout=4 -o ServerAliveInterval=3 -o ServerAliveCountMax=1 \
+  "$N2830_USER@$N2830_HOST" '
   has_process() { pidof "$1" >/dev/null 2>&1 || ps w 2>/dev/null | grep -q "[$(printf "%s" "$1" | cut -c1)]$(printf "%s" "$1" | cut -c2-)"; }
   if has_process AdGuardHome; then AG_SERVICE=true; else AG_SERVICE=false; fi
   if (netstat -ln 2>/dev/null; ss -ln 2>/dev/null) | grep -q ":53[[:space:]]"; then AG_DNS=true; else AG_DNS=false; fi
@@ -29,7 +39,16 @@ RAW="$(ssh -i "$N2830_KEY" -p "$N2830_PORT" "$N2830_USER@$N2830_HOST" '
   TS_PEERS=$(printf "%s" "$TS_RAW" | grep -o "\"Online\"[[:space:]]*:[[:space:]]*true" | wc -l | tr -d " ")
   [ "$TS_DAEMON" = true ] && [ "$TS_BACKEND" = Running ] && TS_CONNECTED=true || TS_CONNECTED=false
   printf "AG_SERVICE=%s\nAG_DNS=%s\nTS_INSTALLED=%s\nTS_DAEMON=%s\nTS_CONNECTED=%s\nTS_BACKEND=%s\nTS_IP=%s\nTS_PEERS=%s\n" "$AG_SERVICE" "$AG_DNS" "$TS_INSTALLED" "$TS_DAEMON" "$TS_CONNECTED" "${TS_BACKEND:-Stopped}" "$TS_IP" "${TS_PEERS:-0}"
-' 2>/dev/null)" || { write_unavailable; exit 0; }
+' > "$TMP" 2>/dev/null &
+SSH_PID=$!
+( sleep 10; kill "$SSH_PID" 2>/dev/null ) &
+WATCHDOG_PID=$!
+wait "$SSH_PID"
+SSH_RC=$?
+kill "$WATCHDOG_PID" 2>/dev/null
+wait "$WATCHDOG_PID" 2>/dev/null
+RAW="$(cat "$TMP" 2>/dev/null)"
+[ "$SSH_RC" -eq 0 ] || { write_unavailable; exit 0; }
 
 value() { printf '%s\n' "$RAW" | sed -n "s/^$1=//p" | head -n 1; }
 bool() { [ "$(value "$1")" = true ] && printf true || printf false; }
