@@ -493,6 +493,14 @@ function normalize(raw) {
     const ethernetConnected = wired.has(mac);
     const p = prefs[mac] || {};
     const registered = !!p.registered || !!p.managed;
+    // Registration explicitly records the intended access medium.  Neighbor
+    // entries exist for Wi-Fi clients as well, so they must not turn a device
+    // configured as Wi-Fi into a LAN device.
+    const configuredConnection = registered && ["wifi", "lan"].includes(p.connectionPreference)
+      ? p.connectionPreference : "";
+    const connectionType = configuredConnection === "wifi" ? "wifi"
+      : configuredConnection === "lan" ? "wired"
+      : w ? "wifi" : ethernetConnected ? "wired" : "wifi";
     const displayName = p.displayName || p.name || l.hostname || l.vendor || "이름 없는 기기";
     const deviceType = p.deviceType || inferType(displayName);
     return {
@@ -507,12 +515,12 @@ function normalize(raw) {
       deviceType,
       icon: p.icon || iconKeyForType(deviceType),
       memo: p.memo || "",
-      ip: l.ip || "-", online: !!w || ethernetConnected,
+      ip: l.ip || "-", online: connectionType === "wifi" ? !!w : ethernetConnected,
       ethernetConnected,
       lastSeen: Number(l.expires || 0),
       connectionPreference: p.connectionPreference || "wifi",
-      connectionType: w ? "wifi" : (ethernetConnected ? "wired" : ((p.connectionPreference || "wifi") === "lan" ? "wired" : "wifi")),
-      network: w ? `Wi-Fi ${w.band || ""}`.trim() : (ethernetConnected || (p.connectionPreference || "wifi") === "lan" ? "LAN" : "Wi-Fi"),
+      connectionType,
+      network: connectionType === "wifi" ? `Wi-Fi ${w?.band || ""}`.trim() : "LAN",
       ssid: w?.ssid || "",
       signal: w?.signal ?? null,
       uploadBps: Number(l.upload_bps ?? l.tx_bps ?? w?.upload_bps ?? w?.tx_bps ?? 0),
