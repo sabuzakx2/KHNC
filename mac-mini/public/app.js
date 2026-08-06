@@ -91,6 +91,8 @@ function moveDeviceBefore(fromMac, toMac) {
   const nextTo = order.indexOf(toMac);
   order.splice(nextTo, 0, fromMac);
   localStorage.setItem(DEVICE_ORDER_KEY, JSON.stringify(order));
+  // Moving a card is an explicit request for a custom order.
+  if ($("#sort")) $("#sort").value = "custom";
   scheduleStateSave();
   renderCards();
   renderParentMode();
@@ -103,6 +105,7 @@ function moveDeviceStep(mac, direction) {
   if (index < 0 || target < 0 || target >= order.length) return;
   [order[index], order[target]] = [order[target], order[index]];
   localStorage.setItem(DEVICE_ORDER_KEY, JSON.stringify(order));
+  if ($("#sort")) $("#sort").value = "custom";
   scheduleStateSave();
   renderCards();
   renderParentMode();
@@ -110,8 +113,7 @@ function moveDeviceStep(mac, direction) {
 }
 function reorderEnabled() {
   const query = $("#search")?.value.trim() || "";
-  const sortMode = $("#sort")?.value || "custom";
-  return !query && selected === "전체" && deviceConnectionFilter === "all" && sortMode === "custom";
+  return !query && selected === "전체" && deviceConnectionFilter === "all";
 }
 function orderControls(mac) {
   return `<div class="order-controls" data-order-controls="${escapeHtml(mac)}">
@@ -710,11 +712,20 @@ function list() {
     if ($("#onlineFirst").checked && x.online !== y.online) return x.online ? -1 : 1;
     if (x.favorite !== y.favorite) return x.favorite ? -1 : 1;
     if (x.registered !== y.registered) return x.registered ? -1 : 1;
-    if (mode === "ip") return x.ip.localeCompare(y.ip, undefined, { numeric: true });
+    if (mode === "ip") return compareIPv4(x.ip, y.ip);
     if (mode === "recent") return y.lastSeen - x.lastSeen;
     return x.name.localeCompare(y.name, "ko");
   });
   return a;
+}
+
+function compareIPv4(left, right) {
+  const parts = value => String(value || "").split(".").map(Number);
+  const a = parts(left), b = parts(right);
+  const valid = p => p.length === 4 && p.every(n => Number.isInteger(n) && n >= 0 && n <= 255);
+  if (!valid(a) || !valid(b)) return valid(a) ? -1 : valid(b) ? 1 : String(left).localeCompare(String(right));
+  for (let i = 0; i < 4; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return 0;
 }
 
 function groupOptions(sel) { return ["미지정", ...customGroups].map(g => `<option ${g === sel ? "selected" : ""}>${escapeHtml(g)}</option>`).join(""); }
