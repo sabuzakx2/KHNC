@@ -33,11 +33,19 @@ ssh -i "$N2830_KEY" -p "$N2830_PORT" \
   TS_BIN=$(command -v tailscale 2>/dev/null)
   if [ -n "$TS_BIN" ]; then TS_INSTALLED=true; else TS_INSTALLED=false; fi
   if has_process tailscaled; then TS_DAEMON=true; else TS_DAEMON=false; fi
-  TS_RAW=""; [ -n "$TS_BIN" ] && TS_RAW=$($TS_BIN status --json 2>/dev/null)
+  # On a restarting or unhealthy node, `tailscale status` can block. Ubuntu
+  # provides timeout(1), so limit only this optional detail lookup.
+  TS_RAW=""
+  if [ -n "$TS_BIN" ] && command -v timeout >/dev/null 2>&1; then
+    TS_RAW=$(timeout 4 "$TS_BIN" status --json 2>/dev/null)
+    TS_STATUS_RC=$?
+  else
+    TS_STATUS_RC=1
+  fi
   TS_BACKEND=$(printf "%s" "$TS_RAW" | sed -n "s/.*\"BackendState\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1)
   TS_IP=$(printf "%s" "$TS_RAW" | sed -n "s/.*\"TailscaleIPs\"[[:space:]]*:[[:space:]]*\[\"\([^\"]*\)\".*/\1/p" | head -n 1)
   TS_PEERS=$(printf "%s" "$TS_RAW" | grep -o "\"Online\"[[:space:]]*:[[:space:]]*true" | wc -l | tr -d " ")
-  [ "$TS_DAEMON" = true ] && [ "$TS_BACKEND" = Running ] && TS_CONNECTED=true || TS_CONNECTED=false
+  [ "$TS_DAEMON" = true ] && [ "$TS_BACKEND" = Running ] && [ "$TS_STATUS_RC" -eq 0 ] && TS_CONNECTED=true || TS_CONNECTED=false
   printf "AG_SERVICE=%s\nAG_DNS=%s\nTS_INSTALLED=%s\nTS_DAEMON=%s\nTS_CONNECTED=%s\nTS_BACKEND=%s\nTS_IP=%s\nTS_PEERS=%s\n" "$AG_SERVICE" "$AG_DNS" "$TS_INSTALLED" "$TS_DAEMON" "$TS_CONNECTED" "${TS_BACKEND:-Stopped}" "$TS_IP" "${TS_PEERS:-0}"
 ' > "$TMP" 2>/dev/null &
 SSH_PID=$!
