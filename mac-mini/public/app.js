@@ -1830,15 +1830,3 @@ async function initializeMaintenance() {
   }
   await Promise.allSettled([refreshMaintenanceStatus(), refreshBackupHistory()]);
 }
-
-const maintenanceSetView = setView;
-setView = function(view) { maintenanceSetView(view); if (view === "maintenance") initializeMaintenance().catch(error => console.warn("KHNC maintenance:", error.message)); };
-$("#maintenanceBackupSettings").onclick = backupDb;
-$("#maintenanceRestoreSettings").onchange = async e => { try { if (e.target.files[0] && confirm("현재 KHNC 설정을 선택한 백업 파일로 교체하시겠습니까?")) await restoreDbFile(e.target.files[0]); } catch (error) { alert(`복원 실패: ${error.message}`); } finally { e.target.value=""; } };
-$("#maintenanceConfigForm").onsubmit = async e => { e.preventDefault(); try { await maintenanceRequest("save-config", maintenanceConfigValues()); $("#nasTestResult").textContent = "설정 저장됨"; $("#nasTestResult").className = "maintenance-state complete"; await refreshBackupHistory(); } catch (error) { alert(`저장 실패: ${error.message}`); } };
-$("#testNasConnection").onclick = async () => { const state=$("#nasTestResult"); state.textContent="테스트 중…"; try { await maintenanceRequest("save-config", maintenanceConfigValues()); const data=await maintenanceRequest("test-nas", {}); state.textContent=data.message; state.className="maintenance-state complete"; } catch(error){state.textContent=error.message;state.className="maintenance-state failed";} };
-$("#startSsdBackup").onclick = async () => { if (!confirm("extroot SSD 전체를 읽어 NAS로 스트리밍 백업합니다. 계속하시겠습니까?")) return; try { await maintenanceRequest("save-config", maintenanceConfigValues()); await maintenanceRequest("start", {}); await refreshMaintenanceStatus(); } catch(error){alert(`백업 시작 실패: ${error.message}`);} };
-$("#refreshMaintenance").onclick = refreshMaintenanceStatus; $("#refreshBackupHistory").onclick = refreshBackupHistory;
-$("#backupHistory").onclick = async e => { const verify=e.target.closest("[data-verify-backup]"); const restore=e.target.closest("[data-restore-command]"); try { if(verify){verify.disabled=true;const result=await maintenanceRequest("verify",{file:verify.dataset.verifyBackup});alert(`SHA256 검증 성공\n${result.message}`);verify.disabled=false;} if(restore){const result=await maintenanceRequest("restore-command",{file:restore.dataset.restoreCommand});$("#restoreCommandText").value=`주의: ${result.warning}\n\n${result.command}`;$("#restoreCommandDialog").showModal();} } catch(error){alert(error.message);if(verify)verify.disabled=false;} };
-$("#copyRestoreCommand").onclick = async () => { await navigator.clipboard.writeText($("#restoreCommandText").value); $("#copyRestoreCommand").textContent="복사 완료"; };
-setInterval(() => { if (activeView === "maintenance") refreshMaintenanceStatus(); }, 2000);
