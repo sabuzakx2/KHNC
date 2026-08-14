@@ -36,7 +36,7 @@ The Docker adapter executes retained AX53U CGI scripts over SSH directly, includ
 When Wi-Fi is provided by separate OpenWrt APs, AX53U's DHCP leases remain the device inventory but do not contain the AP association table. Set `WIFI_APS` in `config/khnc.env` to a JSON array such as:
 
 ```ini
-WIFI_APS=[{"name":"WHW03-01","host":"192.168.1.2","port":22,"user":"root"}]
+WIFI_APS=[{"name":"WHW03-01","host":"192.168.1.2","port":2202,"user":"root","key":"/run/secrets/khnc_whw03_01_key"}]
 ```
 
-Authorize the existing Docker-server public key on each AP. KHNC then reads only hostapd client state over SSH and merges it with AX53U data. An unreachable AP is reported in `wifiSources.failures`; it does not make the main device API fail. `WIFI_APS` may contain both WHW03 units.
+For an existing Home Assistant read-only key, copy `compose.wifi-ap.example.yml` to `compose.override.yml` before starting the containers. It mounts `/opt/homeassistant/config/ssh/network_readonly_ed25519` read-only at the path in the example above. KHNC then reads only hostapd client state over SSH and merges it with AX53U data. An unreachable AP is reported in `wifiSources.failures`; it does not make the main device API fail. `WIFI_APS` may contain both WHW03 units.

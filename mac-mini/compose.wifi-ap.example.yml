@@ -1,0 +1,11 @@
+# Copy this file to /opt/khnc/compose.override.yml only when separate OpenWrt
+# access points provide Wi-Fi. It reuses the existing Home Assistant read-only
+# SSH key; no new key pair is generated or copied.
+services:
+  khnc-desktop:
+    volumes:
+      - /opt/homeassistant/config/ssh/network_readonly_ed25519:/run/secrets/khnc_whw03_01_key:ro
+
+  khnc-mobile:
+    volumes:
+      - /opt/homeassistant/config/ssh/network_readonly_ed25519:/run/secrets/khnc_whw03_01_key:ro
