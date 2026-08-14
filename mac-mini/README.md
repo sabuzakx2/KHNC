@@ -30,3 +30,13 @@ Desktop: `http://<docker-server-ip>:9081`
 Mobile: `http://<docker-server-ip>:9082`
 
 The Docker adapter executes retained AX53U CGI scripts over SSH directly, including approved KHNC configuration, parental-policy, maintenance, and backup requests. Device display preferences are stored on the Mac mini volume at `/opt/khnc/data`. It does not depend on router ports 8881 or 8882.
+
+## Wired-backhaul OpenWrt access points
+
+When Wi-Fi is provided by separate OpenWrt APs, AX53U's DHCP leases remain the device inventory but do not contain the AP association table. Set `WIFI_APS` in `config/khnc.env` to a JSON array such as:
+
+```ini
+WIFI_APS=[{"name":"WHW03-01","host":"192.168.1.2","port":22,"user":"root"}]
+```
+
+Authorize the existing Docker-server public key on each AP. KHNC then reads only hostapd client state over SSH and merges it with AX53U data. An unreachable AP is reported in `wifiSources.failures`; it does not make the main device API fail. `WIFI_APS` may contain both WHW03 units.
