@@ -27,11 +27,16 @@ case "$SSH_ORIGINAL_COMMAND" in
         6*) band='6 GHz' ;;
         *) band='Wi-Fi' ;;
       esac
+      # Print the complete record in awk.  Do not pass MAC addresses through
+      # a shell read loop: shell IFS handling can corrupt colon-delimited MACs.
       iw dev "$iface" station dump 2>/dev/null |
-        awk '/^Station / { mac=$2 } /^[[:space:]]*signal:/ && mac { print mac "\t" $2; mac="" }' |
-        while IFS='\t' read -r mac signal; do
-          printf 'station\t%s\t%s\t%s\t%s\t%s\n' "$iface" "$ssid" "$band" "$mac" "$signal"
-        done
+        awk -v iface="$iface" -v ssid="$ssid" -v band="$band" '
+          /^Station / { mac=$2 }
+          /^[[:space:]]*signal:/ && mac {
+            printf "station\\t%s\\t%s\\t%s\\t%s\\t%s\\n", iface, ssid, band, mac, $2
+            mac=""
+          }
+        '
     done
     ;;
   *)
