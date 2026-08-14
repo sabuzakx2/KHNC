@@ -40,3 +40,5 @@ WIFI_APS=[{"name":"WHW03-01","host":"192.168.1.2","port":2202,"user":"root","key
 ```
 
 For an existing Home Assistant read-only key, copy `compose.wifi-ap.example.yml` to `compose.override.yml` before starting the containers. It mounts `/opt/homeassistant/config/ssh/network_readonly_ed25519` read-only at the path in the example above. KHNC then reads only hostapd client state over SSH and merges it with AX53U data. An unreachable AP is reported in `wifiSources.failures`; it does not make the main device API fail. `WIFI_APS` may contain both WHW03 units.
+
+If that SSH key is a forced-command key, install `openwrt/ha-network-readonly` on the AP as `/root/ha-network-readonly`. It permits only `status`, `wifi_count`, and `wifi_stations`; KHNC uses only `wifi_stations`.

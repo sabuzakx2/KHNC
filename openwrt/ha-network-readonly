@@ -1,0 +1,41 @@
+#!/bin/sh
+# Forced command used by Home Assistant and KHNC.  Keep this an explicit
+# allow-list: callers cannot execute an arbitrary root shell command.
+case "$SSH_ORIGINAL_COMMAND" in
+  status)
+    ubus call system board
+    ;;
+  wifi_count)
+    n=0
+    for i in $(iw dev 2>/dev/null | awk '$1 == "Interface" { print $2 }'); do
+      n=$((n + $(iw dev "$i" station dump 2>/dev/null | awk '/^Station/{c++} END{print c+0}')))
+    done
+    printf '{"wifi_clients":%s}\n' "$n"
+    ;;
+  wifi_stations)
+    # station<TAB>interface<TAB>ssid<TAB>band<TAB>mac<TAB>signal
+    # hostapd status filters this to AP BSS interfaces, excluding backhaul
+    # station-mode interfaces if they ever exist on the same device.
+    for iface in $(iw dev 2>/dev/null | awk '$1 == "Interface" { print $2 }'); do
+      status="$(ubus call "hostapd.$iface" get_status 2>/dev/null)"
+      [ -n "$status" ] || continue
+      ssid="$(printf '%s' "$status" | jsonfilter -e '@.ssid' 2>/dev/null)"
+      freq="$(printf '%s' "$status" | jsonfilter -e '@.freq' 2>/dev/null)"
+      case "$freq" in
+        2*) band='2.4 GHz' ;;
+        5*) band='5 GHz' ;;
+        6*) band='6 GHz' ;;
+        *) band='Wi-Fi' ;;
+      esac
+      iw dev "$iface" station dump 2>/dev/null |
+        awk '/^Station / { mac=$2 } /^[[:space:]]*signal:/ && mac { print mac "\t" $2; mac="" }' |
+        while IFS='\t' read -r mac signal; do
+          printf 'station\t%s\t%s\t%s\t%s\t%s\n' "$iface" "$ssid" "$band" "$mac" "$signal"
+        done
+    done
+    ;;
+  *)
+    echo "command not permitted" >&2
+    exit 1
+    ;;
+esac

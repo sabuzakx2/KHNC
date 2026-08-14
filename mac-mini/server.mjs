@@ -86,43 +86,22 @@ const cgiCacheTtl = {
   "khnc-pi-status-cache-api": 60_000
 };
 
-const apWifiCommand = `
-  for OBJ in $(ubus list 2>/dev/null | grep '^hostapd\\.'); do
-    STATUS="$(ubus call "$OBJ" get_status 2>/dev/null)"
-    CLIENTS="$(ubus call "$OBJ" get_clients 2>/dev/null)"
-    [ -n "$CLIENTS" ] || continue
-    SSID="$(printf '%s' "$STATUS" | jsonfilter -e '@.ssid' 2>/dev/null)"
-    FREQ="$(printf '%s' "$CLIENTS" | jsonfilter -e '@.freq' 2>/dev/null)"
-    [ -n "$FREQ" ] || FREQ="$(printf '%s' "$STATUS" | jsonfilter -e '@.freq' 2>/dev/null)"
-    case "$FREQ" in 2*) BAND='2.4 GHz';; 5*) BAND='5 GHz';; 6*) BAND='6 GHz';; *) BAND='Wi-Fi';; esac
-    printf 'radio\\t%s\\t%s\\t%s\\n' "${OBJ#hostapd.}" "$SSID" "$BAND"
-    for RAW_MAC in $(printf '%s\\n' "$CLIENTS" | sed -n 's/^[[:space:]]*"\\([0-9A-Fa-f:][0-9A-Fa-f:]*\\)"[[:space:]]*:[[:space:]]*{.*/\\1/p' | awk 'length($0)==17'); do
-      MAC="$(printf '%s' "$RAW_MAC" | tr A-F a-f)"
-      SIGNAL="$(printf '%s' "$CLIENTS" | jsonfilter -e "@.clients['$RAW_MAC'].signal" 2>/dev/null)"
-      case "$SIGNAL" in ''|*[!0-9-]*) SIGNAL=-100;; esac
-      printf 'client\\t%s\\t%s\\n' "$MAC" "$SIGNAL"
-    done
-  done
-`;
-
 function parseApWifi(output, ap) {
-  const radios = [];
-  let radio = null;
+  const radios = new Map();
   for (const line of String(output || "").split(/\r?\n/)) {
     const fields = line.split("\t");
-    if (fields[0] === "radio") {
-      radio = {
-        interface: `${ap.name}:${fields[1] || "wifi"}`,
-        ssid: fields[2] || "",
-        band: fields[3] || "Wi-Fi",
-        clients: []
-      };
-      radios.push(radio);
-    } else if (fields[0] === "client" && radio && /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i.test(fields[1] || "")) {
-      radio.clients.push({ mac: fields[1].toLowerCase(), signal: Number(fields[2]) || -100 });
-    }
+    if (fields[0] !== "station" || !/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i.test(fields[4] || "")) continue;
+    const interfaceName = fields[1] || "wifi";
+    const key = `${interfaceName}\u0000${fields[2] || ""}\u0000${fields[3] || "Wi-Fi"}`;
+    if (!radios.has(key)) radios.set(key, {
+      interface: `${ap.name}:${interfaceName}`,
+      ssid: fields[2] || "",
+      band: fields[3] || "Wi-Fi",
+      clients: []
+    });
+    radios.get(key).clients.push({ mac: fields[4].toLowerCase(), signal: Number(fields[5]) || -100 });
   }
-  return radios;
+  return [...radios.values()];
 }
 
 async function mergeAccessPointWifi(result) {
@@ -132,7 +111,9 @@ async function mergeAccessPointWifi(result) {
   catch { return result; }
 
   const readings = await Promise.all(wifiAps.map(async (ap) => {
-    const reading = await sshCommand(ap, apWifiCommand);
+    // This is intentionally a single forced-command allow-list entry on the
+    // AP, not an arbitrary remote shell command.
+    const reading = await sshCommand(ap, "wifi_stations");
     return { ap, reading };
   }));
   const failed = [];
